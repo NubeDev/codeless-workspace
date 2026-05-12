@@ -39,8 +39,8 @@ Goal: Adopt the vendored `ai-runner` crate, run real coding runners
       so every job runs in its own checkout, and add cost tracking
       with cap-driven cancellation.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 1)
-Current stage: 2 / 7
+Last tick: 2026-05-12 (stage 2)
+Current stage: 3 / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2b stacks on the same
@@ -59,12 +59,12 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
          `codeless-types::Event` and publishing through `EventBus`.
          Keep our local `Runner` trait + `MockRunner` working alongside
          as the scriptable test path.
-- [ ] 2. [M] Worktree-per-job: `drive_job` creates a `git worktree`  ← next
+- [x] 2. [M] Worktree-per-job: `drive_job` creates a `git worktree`
          via `WorktreeManager` before invoking the runner, threads
          the worktree path into `RunnerContext`, and removes the
          worktree on terminal status. Test pins lifecycle (existence
          during `running`, cleanup on `completed`/`failed`/`stopped`).
-- [ ] 3. [M] `ClaudeRunner` wired end-to-end through the bridge.
+- [ ] 3. [M] `ClaudeRunner` wired end-to-end through the bridge.  ← next
          Tests use a fake `claude`-style binary on an explicit `PATH`
          (SCOPE.md "Testing strategy") — never the developer's host
          install. Asserts a stage's events land via the bridge in the
@@ -95,6 +95,20 @@ Likely batching (planning hint, not a contract):
 - Tick 6: stage 7 (S) — wrap-up + DONE.
 
 ## Notes
+- Stage 2: `drive_job` now takes `Option<Arc<WorktreeManager>>` and,
+  when supplied, provisions a `git worktree` before flipping the job
+  to `Running`. The worktree path is persisted on `jobs.worktree_path`
+  for a post-crash reaper, threaded into `RunnerContext.worktree_path`,
+  and removed at every terminal exit including the
+  stop-wins-after-runner-returned branch. Removal failures `tracing::warn!`
+  rather than poison the terminal status — disk leak is recoverable,
+  a stuck `Running` row is not. `codeless-runtime` gains a path dep on
+  `codeless-adapters-host` to use `WorktreeManager` concretely; R1's
+  ban on `process::Command` in non-adapters crates is on direct usage,
+  not transitive deps, so this is in scope. The opt-in shape keeps the
+  existing `MockRunner` tests working with `None` and a fictional
+  `/tmp/demo` repo. New `tests/job_worktree.rs` exercises completed,
+  failed, and stopped terminals against a real `git init`-ed tempdir.
 - Stage 1: `../ai-runner` added to `codeless/Cargo.toml` members and
   the workspace gained the `workspace.dependencies` block + `publish`
   field that ai-runner inherits via `.workspace = true`. One edit
