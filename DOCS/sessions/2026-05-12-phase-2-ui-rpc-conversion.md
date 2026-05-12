@@ -28,8 +28,8 @@ Goal: Drive `@tauri-apps/*` import count from 13 → ≤3 (the two
       10 blocked UI files to call `useRpc()`. Verified end-to-end
       against `MockRpcClient` at `/?mock=1`.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 4a — MockRpcClient FS + secrets impl)
-Current stage: 5 ← next (stage 4b vitest deferred)
+Last tick: 2026-05-12 (stages 5–6 — editor conversions; 13→11 files)
+Current stage: 7 ← next (stage 4b vitest deferred)
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2 UI work stacks on
@@ -70,9 +70,9 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
           write/list/delete + secrets set/get/list/rm. Deferred:
           UI package has no vitest dep yet; bootstrap is its own
           stage. Stages 5–12 verify against `/?mock=1` instead.
-- [ ] 5.  [S] Convert `modules/editor/lib/useDocument.ts`
-          (fs_read_file, fs_write_file). Verify via `/?mock=1`.
-- [ ] 6.  [S] Convert `modules/editor/NewEditorDialog.tsx`
+- [x] 5.  [S] Convert `modules/editor/lib/useDocument.ts`
+          (fs_read_file, fs_write_file).
+- [x] 6.  [S] Convert `modules/editor/NewEditorDialog.tsx`
           (fs_create_file).
 - [ ] 7.  [S] Convert `modules/explorer/lib/useFileTree.ts`
           (fs_read_dir, fs_create_dir).
