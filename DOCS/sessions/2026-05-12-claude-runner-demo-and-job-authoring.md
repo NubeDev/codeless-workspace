@@ -21,8 +21,8 @@ Goal in one sentence:
   can refine (and optionally have an AI scope) before submitting.
 
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 2 landed)
-Current stage: 3 / 13
+Last tick: 2026-05-12 (stages 3+4+5 landed)
+Current stage: 6 / 13
 
 Repo:        codeless
 Branch:      master
@@ -84,7 +84,7 @@ job either runs to completion or hits the review gate.
        `/server/info` so the UI can render the right hint
        ("Install Claude Code", "Run `claude auth login`", "Ready").
 
-- [ ] 3. [S] CLI: `codeless serve --enable-claude --worktree-root            ← next
+- [x] 3. [S] CLI: `codeless serve --enable-claude --worktree-root
        <path>` already exists. Add a `--worktree-root` default that
        points at `<fs-root>/.codeless/worktrees` when both are set,
        so the demo path does not require the operator to invent a
@@ -93,7 +93,7 @@ job either runs to completion or hits the review gate.
        repo level (`.codeless/` is in our `.gitignore` already? if
        not, add it as part of this stage).
 
-- [ ] 4. [S] UI: Submit dialog reads `/server/info` once, populates
+- [x] 4. [S] UI: Submit dialog reads `/server/info` once, populates
        the Runner field as a `<Select>` with the enabled runners.
        Default selection: server's reported default. `mock` shown
        with a "(demo)" label so the user does not confuse it with
@@ -102,14 +102,14 @@ job either runs to completion or hits the review gate.
        — the demo's `main` default was wrong (real runs commit on
        the branch and we want isolation).
 
-- [ ] 5. [S] UI: settings → Models section grows a "Coding agents"
+- [x] 5. [S] UI: settings → Models section grows a "Coding agents"
        block above the API keys. Lists Claude Code with the status
        reported by `/server/info` and a one-line action ("Install
        Claude Code" linking to the docs; "Run `claude auth login`
        in a terminal"; "Ready"). Future Codex / Copilot rows live
        in the same block when those runners arrive.
 
-- [ ] 6. [M] End-to-end exercise: from a fresh git repo on the
+- [ ] 6. [M] End-to-end exercise: from a fresh git repo on the              ← next
        host (`cd /tmp && git init demo-target && cd demo-target &&
        echo "# demo" > README.md && git add -A && git commit -m
        init`), run:
@@ -199,6 +199,12 @@ a real authoring surface that grows with the job. The user can:
   stage 3 needs to make worktrees the default for any non-`mock`
   runner. Sub-question: do we refuse to run a non-mock job
   without a worktree-root configured, or auto-provision one?
+  Stage 3 answer: implicit default `<fs-root>/.codeless/worktrees`
+  when --worktree-root is unset but --fs-root is set. The conservative
+  "refuse non-mock without worktree-root" refusal lands when stage 6
+  end-to-end exposes a footgun; today the implicit default makes the
+  demo work without a second flag and the existing "worktrees=disabled"
+  log line covers the no-fs-root case.
 - Scope-with-AI in stage 10: does the meta-mode share a session
   with the eventual job run, or is it a separate transient run?
   Affects whether the draft's "context window" survives into the
@@ -222,6 +228,17 @@ a real authoring surface that grows with the job. The user can:
 (none)
 
 ## Tick log
+- stages 3+4+5: implicit --worktree-root default is
+  <fs-root>/.codeless/worktrees when --fs-root is set; codeless repo
+  gitignore now excludes `.codeless/worktrees/` (templates remain
+  trackable). RpcClient gains `serverInfo()`; HttpSse fetches the
+  unauth GET, Tauri invokes `rpc_server_info` (Phase 5 backend will
+  wire it), mock returns a fixture with claude=null. SubmitJobDialog
+  loads server-info on open, populates Runner as a `<Select>`
+  honouring repo.default_runner then server default, branch defaults
+  to `codeless/job-<6char>`, mock label shows "(demo)". Settings
+  Models gets a "Coding agents" block above API keys, surfacing the
+  Claude probe state with one-line actions.
 - stage 2: codeless-adapters-host::claude (new module) ports the
   upstream ai-runner discovery (env -> PATH -> well-known dirs -> editor
   installs) and adds an async probe that surfaces ClaudeStatus on
