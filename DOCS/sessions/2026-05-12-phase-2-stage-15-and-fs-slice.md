@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:02
-Current stage: 2 / 12
+Last tick: 2026-05-12 16:57
+Current stage: 3 / 12
 
 Repo:        codeless
 Branch:      master
@@ -71,11 +71,12 @@ Phase A — Specta codegen covers RPC methods (replaces hand-mirrored TS):
        `codeless-rpc` with the same pinned versions as
        `codeless-types`; keep the crate I/O-free so mobile-reach is
        preserved.
-- [ ] 2. [S] Add a codegen binary (`cargo run -p codeless-types --bin   ← next
-       wire-ts` or similar) that writes the same TypeScript the
-       snapshot test renders, to a deterministic path consumed by the
-       UI build (e.g. `ui/codeless-ui/src/lib/rpc/generated/wire.ts`).
-- [ ] 3. [M] Replace hand-mirrored `ui/codeless-ui/src/lib/rpc/wire.ts`
+- [x] 2. [S] Add a codegen binary that writes the combined TypeScript
+       to `ui/codeless-ui/src/lib/rpc/generated/wire.ts`. Implemented
+       as `cargo run -p codeless-rpc --example wire_ts` — example
+       targets resolve dev-dependencies, so `specta-typescript` does
+       not leak into mobile-reach builds.
+- [ ] 3. [M] Replace hand-mirrored `ui/codeless-ui/src/lib/rpc/wire.ts`   ← next
        and `methods.ts` with re-exports of the generated module. UI
        must still typecheck; `MockRpcClient`, `HttpSseClient`, and
        `TauriIpcClient` keep working unchanged.
@@ -151,6 +152,13 @@ Likely batching (planning hint, not a contract):
   workspaces (out of scope for this loop).
 
 ## Tick log
+- Tick 2 (2026-05-12 16:57): stage 2. Codegen lives as `cargo run -p
+  codeless-rpc --example wire_ts`. Picked example over `[[bin]]` because
+  examples resolve dev-dependencies; that keeps `specta-typescript` out
+  of the mobile-reach dependency graph entirely, where a `[[bin]]` would
+  have either polluted the normal deps or required a separate tool
+  crate. Output deterministic (md5 stable across runs), ~10.7 KB,
+  302 lines, single file at `ui/codeless-ui/src/lib/rpc/generated/wire.ts`.
 - Tick 1 (2026-05-12 17:02): stage 1. Added `specta` to `codeless-rpc`,
   derived `Type` on all method arg/result structs + `EventFilter`. Kept
   the snapshot per-crate (new `codeless-rpc/tests/wire-rpc.ts.snap`)
