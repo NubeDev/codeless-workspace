@@ -51,7 +51,7 @@ Goal: Land Phase 1 — types, in-process RPC, specta codegen, initial sqlx
       end-to-end `codeless run --once` against a runner — all pushed.
 Started: 2026-05-12
 Last tick: 2026-05-12 (tick 6 — stages 8+9)
-Current stage: 9 / 11
+Current stage: 10 / 11
 
 Repo:        codeless
 Branch:      feat/bootstrap-cargo-workspace
@@ -71,8 +71,8 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 6. [S] tracing-subscriber JSON-to-stdout baseline
 - [x] 7. [S] codeless/CLAUDE.md at repo root capturing the rules from SCOPE.md
 - [x] 8. [S] codeless secrets set/get/rm/list against chmod 600 secrets.toml
-- [ ] 9. [S] Worktree manager: git worktree add/remove + reaper-on-startup  ← next
-- [ ] 10. [M] codeless run --once --repo <r> "<prompt>" end-to-end against
+- [x] 9. [S] Worktree manager: git worktree add/remove + reaper-on-startup
+- [ ] 10. [M] codeless run --once --repo <r> "<prompt>" end-to-end against  ← next
          a chosen runner, streaming events to stdout
 - [ ] 11. [S] Phase 1 wrap-up: README pointer, CODELESS.md memory update,
          confirm cargo test --workspace + clippy -D warnings + fmt --check green
@@ -92,6 +92,18 @@ Note: bootstrap stage "Cargo workspace + crate stubs" is already complete
 Phase 1 — see commit ebd18a5.
 
 ## Notes
+- Stage 9: `WorktreeManager` in `codeless-adapters-host::worktree`
+  shells out to `git worktree {add,remove,prune}`. Process spawn lives
+  exclusively in this crate — every other crate stays mobile-safe
+  (R1). `create(repo, job_id)` adds `<base>/job-<id>` on a new branch
+  `codeless/job-<id>` and returns both path and branch in a
+  `WorktreeHandle` so callers do not re-derive the names. `remove`
+  forces removal then prunes; `reap_orphans` is a startup-time
+  `git worktree prune` and is idempotent. `AlreadyExists` rather than
+  overwrite — surprise removal of in-flight user work is the
+  outcome we want to make impossible. Tests run `git init --initial-
+  branch=main` in a tempdir, set `GIT_AUTHOR_*`/`GIT_COMMITTER_*` per
+  invocation so CI machines without a global git config still pass.
 - Stage 8: `SecretStore` lives in `codeless-adapters-host::secrets`,
   backed by a TOML file (single flat table; `BTreeMap` for stable
   ordering on disk and in `list`). Save is atomic via a sibling `.tmp`
