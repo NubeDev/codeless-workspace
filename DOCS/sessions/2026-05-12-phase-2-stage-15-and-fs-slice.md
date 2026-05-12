@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:22
-Current stage: 8 / 12
+Last tick: 2026-05-12 17:24
+Current stage: 10 / 12
 
 Repo:        codeless
 Branch:      master
@@ -118,12 +118,18 @@ Phase B — `fs.*` RPC vertical slice (editor + explorer onto real server):
        cover round-trip, sorted listings, traversal/absolute/symlink
        rejection, non-utf8 typed error, missing-path stat returns
        None, bad-root caught at construction.
-- [ ] 8. [S] `codeless-runtime`: hold an `Arc<dyn FsAdapter>` (or the
-       concrete `HostFs`) alongside the existing adapters; delegate
-       the four new `RpcServer` methods.
-- [ ] 9. [S] `codeless-server`: HTTP routes for the four methods (POST
-       JSON, mirror the existing RPC route style); error mapping
-       reuses `RpcError`. Integration test through `axum::Router`.
+- [x] 8. [S] `InProcessRpc::with_fs` attaches a `HostFs`; the four
+       `fs_*` methods delegate to it. Without `with_fs`, callers get
+       `Internal("not configured")`. `FsError::Escape`/`NotUtf8` map
+       to `InvalidArgument`; `Io(NotFound)` maps to `NotFound`. New
+       integration test crates/codeless-runtime/tests/fs.rs covers
+       all five paths.
+- [x] 9. [S] `codeless-server` exposes `/rpc/fs_read_dir`,
+       `/rpc/fs_read_file`, `/rpc/fs_write_file`, `/rpc/fs_stat` with
+       the bearer gate. CLI `codeless serve --fs-root <path>` /
+       `CODELESS_FS_ROOT` wires the host adapter into the runtime
+       before construction. Two new routes-test cases cover the
+       round-trip + the "no fs configured" 500 case.
 - [ ] 10. [S] `codeless-client::HttpRpcClient`: add the four method
         callers + tests against `wiremock` (style already established
         in Phase 3b).
@@ -169,6 +175,10 @@ Likely batching (planning hint, not a contract):
   workspaces (out of scope for this loop).
 
 ## Tick log
+- Tick 8 (2026-05-12 17:24): stages 8 + 9. Runtime gains optional
+  fs adapter; server exposes the four fs routes; CLI's `codeless serve`
+  takes `--fs-root` to bind a workspace root. The `Arc<dyn RpcServer>`
+  state path stayed the same — only the constructor flow changed.
 - Tick 7 (2026-05-12 17:22): stage 7. HostFs + traversal-rejection
   trust gate. Stat returns Option to let callers probe existence
   without catching NotFound.
