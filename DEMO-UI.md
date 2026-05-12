@@ -155,28 +155,15 @@ The terminal sequence on success is `task-started → tool-call*
 → ai-token* → ai-message-complete → task-completed → job-completed`,
 with `tool-call` and `ai-token` events interleaved.
 
-### Known limitation — headless tool permissions
+### Headless tool permissions
 
-`claude-wrapper` defaults to interactive permission mode: tool calls
-that touch the filesystem or shell are blocked pending user approval,
-and a headless server-side run has no one to approve them. In that
-mode you will see the `tool-call` events fire, immediately followed by
-an `ai-token` asking the user for permission, and the job completing
-without any edits landing on the branch.
-
-The fix needs `claude-wrapper`'s
-`QueryCommand::dangerously_skip_permissions()` /
-`PermissionMode::BypassPermissions` plumbed through
-`ai-runner::CliCfg`. That work is upstream (see the workspace's
-[`ai-runner/`](./ai-runner/) directory; per `CLAUDE.md` the inner
-tree is treated as read-only and updates flow from the rubix-agent
-workspace).
-
-Until that lands, the real-Claude path works for surfaces that do
-not require tool execution — e.g. read-only repo Q&A — and the
-`scripts/smoke-claude-demo.sh` regression net asserts every step up
-to the permission gate. The mock runner remains the canonical way to
-drive the UI end-to-end.
+Server-side runs send `CliCfg::permission_mode =
+Some(PermissionMode::Bypass)` (see
+[`ai-runner.PATCHES.md` PATCH-002](./ai-runner.PATCHES.md)), so
+`claude-wrapper`'s Write / Bash / Edit tools execute without waiting
+for an approval prompt. The worktree is the blast radius; that
+trade-off is intentional for a same-user same-host trust boundary
+(SCOPE.md R5).
 
 ### Smoke-test the Claude path
 
@@ -187,10 +174,9 @@ codeless-workspace/scripts/smoke-claude-demo.sh
 Bootstraps a fresh `/tmp` repo, starts `codeless serve --enable-claude`,
 asserts `/server/info` reports the claude runner with the implicit
 worktree-root default, submits a job, polls `get_job` to terminal,
-and finally checks that `hello.txt` is committed on the job branch.
-Today the final assertion fails because of the permission gate
-documented above; the script's value is in catching regressions to
-the *plumbing* surface that already works.
+and asserts that `hello.txt` is committed on the job branch. The
+script is the load-bearing regression net for the real-Claude path
+— if it goes red, the runtime stopped landing edits.
 
 ## What landed in the UX grind
 
