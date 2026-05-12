@@ -76,28 +76,19 @@ false-positive in `src/lib/rpc/client.ts:5` that mentions
 
 - **Starting point: 31 files** imported `@tauri-apps/*` outside the
   shell zone (snapshot when this audit was first written).
-- **Current: 13 files.** The shell-injection grind is done; every
-  remaining file is genuinely blocked on a Rust-side RPC method that
-  doesn't exist yet, or is the documented `TauriIpcClient` exception
-  living in `src/lib/rpc/`.
+- **After shell-injection phase: 13 files.**
+- **Current: 4 files.** The `fs.*` / `secrets.*` / `shell.*` RPC
+  surface has been mirrored UI-side (hand-mirrored from the Rust
+  shapes that `codeless-rpc` will codegen via specta) and the
+  `MockRpcClient` implements all of it in-memory. The 9 fs/secrets/
+  shell callers have been routed through `useRpc()` (components and
+  hooks) or through `configureNative(rpc)` (the legacy `native.ts`
+  free-function surface its Zustand stores and AI tools depend on).
 
-**The 13 remaining files, grouped by blocker:**
+**The 4 remaining files:**
 
 ```
-# Blocked on Rust secrets.* RPC (3)
-src/modules/ai/lib/composer.tsx          # uses fs_read_file
-src/modules/ai/lib/keyring.ts            # uses secrets_get/set/list/rm
-src/modules/ai/lib/native.ts             # batch of fs_* / shell_* tools
-
-# Blocked on Rust fs.* RPC (6)
-src/modules/editor/lib/useDocument.ts    # fs_read_file, fs_write_file
-src/modules/editor/NewEditorDialog.tsx
-src/modules/explorer/ExplorerSearch.tsx  # fs_search
-src/modules/explorer/lib/contextActions.ts
-src/modules/explorer/lib/useFileTree.ts  # fs_read_dir
-src/modules/statusbar/CwdBreadcrumb.tsx  # fs_cwd
-
-# Blocked on Rust pty over WebSocket (2)
+# PTY over WebSocket — reserved channel per SCOPE.md (2)
 src/modules/terminal/lib/pty-bridge.ts
 src/modules/terminal/lib/useTerminalSession.ts
 
