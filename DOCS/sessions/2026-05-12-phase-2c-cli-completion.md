@@ -25,8 +25,8 @@ Goal: Finish the remaining SCOPE.md Phase 2 deliverables — CLI
       ready for browser-shell work (Phase 3) without further CLI
       churn.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 2b)
-Current stage: 3 / 7
+Last tick: 2026-05-12 (stage 3)
+Current stage: 4 / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2c stacks on the same
@@ -59,12 +59,12 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
           methods. Integration test submits a job, drives it to
           AwaitingReview via a mock runner, and exercises each
           subcommand end-to-end.
-- [ ] 3. [M] YAML job template loader: `codeless job submit  ← next
+- [x] 3. [M] YAML job template loader: `codeless job submit
          job.yaml` parses `{repo, runner, prompt, stages, caps}`
          and calls `submit_job`. Test fixture exercises a 2-stage
          job; round-trip the YAML through serde so a syntax error
          surfaces with line/col.
-- [ ] 4. [S] CLI tail: `codeless tail <job-id>` subscribes to
+- [ ] 4. [S] CLI tail: `codeless tail <job-id>` subscribes to  ← next
          events for the job and streams JSON-line output to stdout
          until terminal status. Reuses the subscriber path that
          `run --once` already exercises.
@@ -108,6 +108,16 @@ Likely batching:
   Integration test `run_with_claude_runner_streams_ai_events`
   installs the fake `claude` binary used by phase 2b and asserts
   `ai-token` + `ai-message-complete` + `job-completed` reach stdout.
+- Stage 3: `codeless job submit <file.yaml>` parses a typed
+  `JobTemplate` (repo / runner / prompt / branch / stages / caps)
+  via `serde_yaml` with `#[serde(deny_unknown_fields)]` so a typo
+  like `runneer:` surfaces a line/col parse error rather than
+  silently defaulting. The verbatim YAML is forwarded to
+  `SubmitJobArgs.template_yaml`; the runtime persists it so the
+  original description round-trips off the row. `codeless-cli`
+  picks up `serde_yaml = 0.9` and `serde = 1`. Three tests cover
+  the round-trip (2-stage template), unknown-field rejection
+  (line/col present), and a missing required-field case.
 - Stage 2b: `codeless review {list,approve,comment,stop}` clap
   subcommands in `crates/codeless-cli/src/review.rs`. Added a
   global `--db <path>` flag (env: `CODELESS_DB`) and a shared
