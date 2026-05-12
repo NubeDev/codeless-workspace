@@ -34,8 +34,8 @@ Goal: Get a working browser demo of the Terax-derived UI driving
       review row. The CLI demo is implicit — `codeless serve` is
       the demo's backend.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 1 green)
-Current stage: 2 / 5
+Last tick: 2026-05-12 (stages 2 + 3 green)
+Current stage: 4 / 5
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 3a stacks on the
@@ -82,7 +82,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          against an in-memory `InProcessRpc`; one SSE smoke test
          that publishes an event mid-stream.
 
-- [ ] 2. [S] `codeless serve` CLI verb. Opens `--db <path>` (or   ← next
+- [x] 2. [S] `codeless serve` CLI verb. Opens `--db <path>` (or
          `CODELESS_DB`), reads the bearer token from the secrets
          file, binds to `--bind 127.0.0.1:7777` by default, and
          runs the axum server until SIGINT. Adds `--init-token`
@@ -92,7 +92,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          Integration test: spawn the binary, hit a route, assert
          the bearer gate.
 
-- [ ] 3. [S] Browser shell config + smoke. Confirm `readBaseUrl`
+- [x] 3. [S] Browser shell config + smoke. Confirm `readBaseUrl`
          / `readToken` (already in `lib/rpc/config.ts`) resolve
          from a path the demo can hit — likely `localStorage` for
          token + `?core=http://localhost:7777` query override.
@@ -101,7 +101,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          --init-token`; terminal B: `pnpm -C codeless/ui/codeless-
          ui dev`; paste token; open `JobsDashboard`).
 
-- [ ] 4. [S] End-to-end demo dry run. Boot the server against a
+- [ ] 4. [S] End-to-end demo dry run. Boot the server against a   ← next
          fresh DB, seed one repo + one job via CLI, load the
          browser at `http://localhost:5173/?core=...`, paste the
          token, screenshot or describe what the UI shows. Any
@@ -132,6 +132,20 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
   `EventCursor.0` so EventSource populates `Last-Event-ID` for
   reconnect; the `?since=` extractor also accepts an explicit cursor
   for fresh-connection resume.
+- Stage 2: `codeless serve` lives in `codeless-cli` and delegates
+  bind + graceful-shutdown to `codeless_server::serve_with_shutdown`.
+  `--init-token` writes a 32-char hex token (16 random bytes from
+  the OS CSPRNG via `getrandom`) under `core_bearer_token` in the
+  same secrets file the rest of the CLI uses, and prints it once on
+  stdout. `--force` rotates. Integration tests spawn the binary and
+  exercise the 401/200 bearer gate end-to-end.
+- Stage 3: rather than add a `?core=` query override (would touch
+  the UI), `DEMO-UI.md` at the workspace root drives the existing
+  `localStorage` keys (`codeless-rpc-base-url`, `codeless-rpc-token`)
+  that `config.ts` already reads. CORS is now permissive in
+  `codeless-server` (loopback-only by default, so Any-origin is
+  correct for the single-tenant MVP) so the browser at `:5173` can
+  hit the core at `:7777` without a preflight failure.
 - `HttpSseClient` already documents the wire shape (bearer header
   on REST; `?token=` query on SSE because EventSource has no
   header API). The server must conform to *that* contract, not
