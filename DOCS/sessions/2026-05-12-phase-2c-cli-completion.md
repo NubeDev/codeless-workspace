@@ -25,8 +25,8 @@ Goal: Finish the remaining SCOPE.md Phase 2 deliverables — CLI
       ready for browser-shell work (Phase 3) without further CLI
       churn.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 4)
-Current stage: 5 / 7
+Last tick: 2026-05-12 (stage 5)
+Current stage: 6 / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2c stacks on the same
@@ -68,13 +68,13 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          events for the job and streams JSON-line output to stdout
          until terminal status. Reuses the subscriber path that
          `run --once` already exercises.
-- [ ] 5. [M] Notifier trait + generic webhook backend. Triggers on  ← next
+- [x] 5. [M] Notifier trait + generic webhook backend. Triggers on
          `JobFailed` + `ReviewRequested`. Config lives alongside
          the secrets file (single-tenant). Backend posts JSON to a
          configurable URL with HMAC signing; test against a
          `wiremock` fixture asserting payload shape + signature
          header.
-- [ ] 6. [S] Phase 2c wrap-up: CODELESS.md refresh, README
+- [ ] 6. [S] Phase 2c wrap-up: CODELESS.md refresh, README  ← next
          quickstart updated with the new CLI surfaces, three verify
          gates green, branch ready for combined Phase 2a + 2b + 2c
          PR.
@@ -108,6 +108,19 @@ Likely batching:
   Integration test `run_with_claude_runner_streams_ai_events`
   installs the fake `claude` binary used by phase 2b and asserts
   `ai-token` + `ai-message-complete` + `job-completed` reach stdout.
+- Stage 5: `codeless-runtime::notifier` adds a `Notifier` trait +
+  `NotificationPayload` (kind / cursor / ids / event) and
+  `spawn_notifier` that subscribes to the bus and dispatches only
+  on `JobFailed` / `ReviewRequested`. `WebhookNotifier` is the
+  concrete backend: HMAC-SHA256 over the raw JSON body, signature
+  on `x-codeless-signature`. Webhook impl landed in
+  codeless-runtime (not adapters-host) because adapters-host is
+  upstream in the dep graph — moving the trait there would have
+  cycled. `WebhookConfig` is TOML-shaped so it can sit alongside
+  the existing secrets file later. Tests: live wiremock receives
+  both triggers + ignores `JobStarted`, signature verifies with
+  the shared key, config round-trips through TOML, empty hex key
+  is rejected at setup.
 - Stage 4: `codeless tail <job-id>` subscribes via
   `EventFilter::Job` with `since: Some(EventCursor(0))` so the
   replay catches every persisted envelope before going live; `None`
