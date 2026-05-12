@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:12
-Current stage: 6 / 12
+Last tick: 2026-05-12 17:18
+Current stage: 7 / 12
 
 Repo:        codeless
 Branch:      master
@@ -104,10 +104,13 @@ Phase B — `fs.*` RPC vertical slice (editor + explorer onto real server):
        Method-arg types stay in `codeless-rpc::methods` (stage 6) to
        keep the types crate focused on pure-domain shapes; that mirrors
        how `RemoveRepoArgs`/`GetJobArgs` live in `-rpc`, not `-types`.
-- [ ] 6. [S] `codeless-rpc::methods`: add the matching method-arg
-       wrappers; extend `RpcServer` trait with `fs_read_dir`,
-       `fs_read_file`, `fs_write_file`, `fs_stat`. Wire-ts snapshot
-       updates.
+- [x] 6. [S] `codeless-rpc::methods` and `RpcServer` extended with
+       `fs_read_dir`, `fs_read_file`, `fs_write_file`, `fs_stat`. The
+       in-process runtime returns `Internal("not implemented")` for
+       all four; the HTTP client routes them through `call`. The
+       wire result for `fs_read_file` is the minimal `{ content }`
+       — binary / over-limit variants land when the editor needs
+       them, not before. Snapshots + generated wire.ts regenerated.
 - [ ] 7. [M] `codeless-adapters-host::fs`: a single host implementation
        backed by `tokio::fs`, scoped to a configured root (refuse
        traversal outside the workspace root). Unit tests against a
@@ -164,6 +167,11 @@ Likely batching (planning hint, not a contract):
   workspaces (out of scope for this loop).
 
 ## Tick log
+- Tick 6 (2026-05-12 17:18): stages 5 + 6. fs types in
+  `codeless-types::fs`; method-arg wrappers in `codeless-rpc::methods`;
+  trait extended with 4 fs methods; both impls stubbed. Wire shape for
+  `fs_read_file` deliberately minimal (just `{ content }`) — binary
+  and over-limit variants deferred until the editor needs them.
 - Tick 5 (2026-05-12 17:16): stages 4 + 4b. `wire-ts-check` mani task
   works locally. ListReviewsArgs reconciled with `job_id` added on the
   Rust side (proper join), UI call sites updated, codegen regenerated.
