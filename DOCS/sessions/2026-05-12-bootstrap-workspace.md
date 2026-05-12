@@ -42,8 +42,8 @@ Goal: Stand up the `codeless-workspace` multi-repo workspace as a public
       `ai-runner`, fill in `mani.yaml`, stub the Cargo workspace inside
       `codeless/`, and land `CLAUDE.md` — leaving Phase 1 ready to start.
 Started: 2026-05-12
-Last tick: 2026-05-12 09:25 (Tick A)
-Current stage: 3 / 12
+Last tick: 2026-05-12 09:32 (Tick B)
+Current stage: 4 / 12
 
 Workspace root: /home/user/code/rust/codeless-workspace
 mani binary:    ./bin/mani  (bundled, statically linked — use this, not
@@ -110,20 +110,21 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
         (DOCS, vendored mani binary, vendored ai-runner)`. **Do not
         push yet** — origin doesn't exist until stage 4.
 
-- [ ] 3. [M] Move the inner `codeless` repo into the workspace:    ← next
+- [x] 3. [M] Move the inner `codeless` repo into the workspace:
         `mv /home/user/code/rust/codeless /home/user/code/rust/codeless-workspace/codeless`.
-        Verify it still recognises its remote (`git -C codeless remote -v`
-        prints `NubeDev/codeless`) and that the working tree is clean.
-        Then create the working branch:
-        `git -C codeless switch -c feat/bootstrap-cargo-workspace`.
-        **Critically: the outer repo does NOT track the inner repo's
-        commits.** git automatically ignores nested `.git/` directories
-        when the outer repo doesn't have the path as a submodule. This
-        is intentional — each is its own GitHub repo; the workspace
-        just colocates them. Commit on the outer repo:
-        `chore: place codeless/ under workspace`.
+        Verified: inner repo still on `master`, remote is
+        `NubeDev/codeless`, working tree clean, switched to
+        `feat/bootstrap-cargo-workspace`.
+        **Correction from original plan**: git treats a nested directory
+        with a `.git/` as a submodule candidate (gitlink) by default,
+        which is exactly what we don't want. Resolved by **adding
+        `codeless/` and `terax-ai/` to the workspace `.gitignore`**.
+        Workspace tracks shared tooling only (mani.yaml, DOCS, bin/,
+        vendored ai-runner). Inner repos are colocated, not nested.
+        Outer commit captures the `.gitignore` update only:
+        `chore: ignore inner repos at workspace level (no submodules)`.
 
-- [ ] 4. [S] Create the GitHub repo for the workspace:
+- [ ] 4. [S] Create the GitHub repo for the workspace:                ← next
         `gh repo create NubeDev/codeless-workspace --public --source=.
         --remote=origin --description "Codeless multi-repo workspace
         — SCOPE, JOB-LOOP, mani.yaml, vendored ai-runner"`. Push:
@@ -282,7 +283,19 @@ Expected total: ~8 ticks. If it stretches past 12, halt and reassess.
 
 - **Tick A (2026-05-12 09:25)** — stages 1 + 2 done. `.gitignore`
   written; `git init -b master` succeeded; user/email configured to
-  `NubeDev / ap@nube-io.com`. Seed commit follows in this same tick.
+  `NubeDev / ap@nube-io.com`. Seed commit landed (`init: codeless-
+  workspace seed (DOCS, vendored mani binary, vendored ai-runner,
+  bootstrap session doc)`).
+- **Tick B (2026-05-12 09:32)** — stage 3 done with a correction.
+  Old codeless tree had a 391-line uncommitted README addition; it
+  was committed and pushed as `docs(readme): rationale for forking
+  terax-ai and Codeless scope notes` BEFORE the move so we didn't
+  carry uncommitted work across paths. Then `mv` succeeded and the
+  inner repo was switched to `feat/bootstrap-cargo-workspace`. Git's
+  default behaviour staged `codeless/` as a gitlink which we reject;
+  resolved by adding `codeless/` + `terax-ai/` to the workspace
+  `.gitignore`. Workspace and inner repos are now properly
+  independent.
 
 ## Blockers
 

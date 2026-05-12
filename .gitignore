@@ -1,8 +1,16 @@
 # Workspace-level ignores. Per-repo ignores live inside each repo
 # (e.g. codeless/.gitignore). Do NOT add `bin/` here — the bundled
-# mani binary is intentionally tracked. Do NOT add `codeless/` here —
-# it is moved in as a tracked subdirectory (independent git repo,
-# but the outer workspace tracks the path).
+# mani binary is intentionally tracked.
+#
+# Inner repos (codeless/, terax-ai/ if cloned) ARE ignored at the
+# workspace level. They are independent GitHub repos; the workspace
+# only tracks shared tooling (mani.yaml, DOCS, bin/, vendored
+# ai-runner/). Tracking them here would force a submodule/gitlink,
+# which we explicitly do not want — see DOCS/MANI.md.
+
+# Inner repos (independent histories — see comment above)
+codeless/
+terax-ai/
 
 # Build outputs
 target/
