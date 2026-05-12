@@ -25,8 +25,8 @@ Goal: Finish the remaining SCOPE.md Phase 2 deliverables — CLI
       ready for browser-shell work (Phase 3) without further CLI
       churn.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 5)
-Current stage: 6 / 7
+Last tick: 2026-05-12 (stage 6 — DONE)
+Current stage: DONE (7 / 7)
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2c stacks on the same
@@ -74,7 +74,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          configurable URL with HMAC signing; test against a
          `wiremock` fixture asserting payload shape + signature
          header.
-- [ ] 6. [S] Phase 2c wrap-up: CODELESS.md refresh, README  ← next
+- [x] 6. [S] Phase 2c wrap-up: CODELESS.md refresh, README
          quickstart updated with the new CLI surfaces, three verify
          gates green, branch ready for combined Phase 2a + 2b + 2c
          PR.
@@ -108,6 +108,15 @@ Likely batching:
   Integration test `run_with_claude_runner_streams_ai_events`
   installs the fake `claude` binary used by phase 2b and asserts
   `ai-token` + `ai-message-complete` + `job-completed` reach stdout.
+- Stage 6: Phase 2c wrap-up. `codeless/CODELESS.md` refreshed to
+  describe the full CLI surface (`run --runner`, global `--db` /
+  `CODELESS_DB`, `job submit`, `review`, `tail`) plus the
+  notifier/webhook addition, with a new dated Phase 2c entry under
+  durable facts. `codeless/README.md` quickstart now shows each
+  subcommand and includes a YAML-template + webhook-config
+  example. All three verify gates green at HEAD; branch
+  `feat/phase-2a-persistence` carries Phase 2a + 2b + 2c stacked
+  and is ready for a combined PR.
 - Stage 5: `codeless-runtime::notifier` adds a `Notifier` trait +
   `NotificationPayload` (kind / cursor / ids / event) and
   `spawn_notifier` that subscribes to the bus and dispatches only
