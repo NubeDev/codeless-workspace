@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:08
-Current stage: 4b / 12
+Last tick: 2026-05-12 17:16
+Current stage: 5 / 12
 
 Repo:        codeless
 Branch:      master
@@ -89,13 +89,14 @@ Phase A — Specta codegen covers RPC methods (replaces hand-mirrored TS):
        `mani.yaml`: regenerates the TS, then `git diff --exit-code`
        against the committed file. GitHub Actions wiring deferred
        until a CI workflow exists in either repo.
-- [ ] 4b. [M] Reconcile `methods.ts` hand-mirrored RPC arg/result   ← next
-       shapes with the codegen surface, starting with
-       `ListReviewsArgs` (UI uses `job_id`/`pending_only`; Rust uses
-       `stage_id`/`status`). Decide the canonical shape (Rust wins
-       per CLAUDE.md "code is the source"), update call sites, then
-       re-export from `./generated/wire`. May surface other drifts;
-       split further as needed.
+- [x] 4b. [M] Reconciled `ListReviewsArgs`. Added `job_id` to the Rust
+       shape (joins through `stages.job_id` in `store.list_reviews`),
+       dropped `pending_only` (callers use `status: "pending"` now).
+       UI side: `methods.ts` re-exports `ListReviewsArgs`/`Result`,
+       `Approve`/`Comment`/`StopReviewArgs` from generated; `ReviewPanel`
+       and `mock-client` adopt the new filter shape. Other hand-mirrored
+       method-arg types (AddRepoArgs, SubmitJobArgs, etc.) already
+       coincidentally match codegen — left for a future cleanup.
 
 Phase B — `fs.*` RPC vertical slice (editor + explorer onto real server):
 
@@ -164,6 +165,9 @@ Likely batching (planning hint, not a contract):
   workspaces (out of scope for this loop).
 
 ## Tick log
+- Tick 5 (2026-05-12 17:16): stages 4 + 4b. `wire-ts-check` mani task
+  works locally. ListReviewsArgs reconciled with `job_id` added on the
+  Rust side (proper join), UI call sites updated, codegen regenerated.
 - Tick 4 (2026-05-12 17:08): stage 4. Added `wire-ts-check` mani task.
   Known mani-wrapper quirk: it does not propagate the inner script's
   non-zero exit code to its own exit, so this task is suitable as a
