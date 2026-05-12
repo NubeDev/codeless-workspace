@@ -37,8 +37,8 @@ Goal: Replace `MemoryStore` with SQLite-backed persistence; persist
       scheduler in Phase 2b has a real queue to drive; prove
       resumability across a simulated core restart.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 4 — stage 4)
-Current stage: 5 / 9
+Last tick: 2026-05-12 (tick 5 — stage 5)
+Current stage: 6 / 9
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence
@@ -59,10 +59,10 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
          from the autoincrement column, not an in-memory counter.
 - [x] 4. [M] `subscribe(since)` replays from SQLite from `since+1`
          upward, then attaches the live broadcast tail without gaps.
-- [ ] 5. [M] Task queue: `enqueue_task`, `lease_next(runner_kind)`,  ← next
+- [x] 5. [M] Task queue: `enqueue_task`, `lease_next(runner_kind)`,
          `complete_task`, `fail_task`, `release_expired_leases`. Tests
          pin "no double-lease" and "expired lease reclaim".
-- [ ] 6. [S] Concurrency caps honoured by `lease_next` (global +
+- [ ] 6. [S] Concurrency caps honoured by `lease_next` (global +  ← next
          per-repo + per-runner). Config struct fed at construction.
 - [ ] 7. [S] Lease heartbeat helper + a startup-time reaper for stale
          leases. Idempotent; safe to call repeatedly.
@@ -82,6 +82,27 @@ Likely batching (planning hint, not a contract):
 - Tick 7: stage 9 (S).
 
 ## Notes
+- Stage 5: lease-based task queue on `SqliteStore`. Seven new methods:
+  `insert_stage` (test seed support), `enqueue_task`, `lease_next`,
+  `complete_task`, `fail_task`, `heartbeat_task`,
+  `release_expired_leases`, plus `get_task`. The atomic lease is a
+  single `UPDATE … WHERE id = (SELECT … LIMIT 1) RETURNING *` so two
+  callers racing on the same row cannot both win — the loser's inner
+  SELECT returns no rows once the winner flips status to `running`,
+  and the outer UPDATE matches nothing. Dependency satisfaction is
+  inline: `NOT EXISTS (SELECT 1 FROM json_each(tasks.depends_on) je
+  JOIN tasks dep ON dep.id = je.value WHERE dep.status != 'completed')`
+  — empty `depends_on` (linear mode) trivially passes. Completion /
+  failure / heartbeat all carry a `holder` parameter and the WHERE
+  clause matches on `lease_holder = ?` so a stale call after a
+  takeover is a silent no-op rather than a stomp. `release_expired_
+  leases(now)` flips `running` rows whose `lease_expires_at < now`
+  back to `enqueued` and clears holder fields; idempotent. Five tests
+  in `tests/task_queue.rs` pin: ordinal-ordered leasing, no-double-
+  lease under contention (tokio::join two leases on one task),
+  dependency gating (dependent stays queued until prereq completes),
+  expired-lease reclaim + re-lease, and CAS rejection of completions
+  by a non-holder.
 - Stage 4: `subscribe(since)` is now end-to-end. The `Conflict` guard
   in `rpc.rs` is gone; `EventBus::subscribe_since(filter, since)` does
   the work. Algorithm (commented in the source): (1) `broadcast::
