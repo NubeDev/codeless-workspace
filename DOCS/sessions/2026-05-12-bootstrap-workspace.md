@@ -42,8 +42,8 @@ Goal: Stand up the `codeless-workspace` multi-repo workspace as a public
       `ai-runner`, fill in `mani.yaml`, stub the Cargo workspace inside
       `codeless/`, and land `CLAUDE.md` — leaving Phase 1 ready to start.
 Started: 2026-05-12
-Last tick: 2026-05-12 09:32 (Tick B)
-Current stage: 4 / 12
+Last tick: 2026-05-12 09:38 (Tick C)
+Current stage: 6 / 12
 
 Workspace root: /home/user/code/rust/codeless-workspace
 mani binary:    ./bin/mani  (bundled, statically linked — use this, not
@@ -124,21 +124,19 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
         Outer commit captures the `.gitignore` update only:
         `chore: ignore inner repos at workspace level (no submodules)`.
 
-- [ ] 4. [S] Create the GitHub repo for the workspace:                ← next
-        `gh repo create NubeDev/codeless-workspace --public --source=.
-        --remote=origin --description "Codeless multi-repo workspace
-        — SCOPE, JOB-LOOP, mani.yaml, vendored ai-runner"`. Push:
-        `git push -u origin master`. Verify via
-        `gh repo view NubeDev/codeless-workspace --json url` and a
-        plain `git remote -v`.
+- [x] 4. [S] Created `NubeDev/codeless-workspace` (public) via
+        `gh repo create`, pushed `master`. Live at
+        <https://github.com/NubeDev/codeless-workspace>.
 
-- [ ] 5. [S] Confirm the bundled `mani` binary works:
-        `./bin/mani --version` exits 0. If `mani.yaml` is empty, that's
-        expected for this stage. Capture the version string in a Notes
-        line below. (No commit unless the stage discovers something
-        needing recording.)
+- [x] 5. [S] `./bin/mani --version` reports
+        `Version: dev / Commit: none / Date: n/a` — this is a custom
+        `mani` build (statically linked, ~12 MB). It includes bespoke
+        commands not in upstream mani: `release`, `issue` (GitHub
+        issues), `introspect` (LLM-friendly JSON command tree),
+        `check` (config validation). Stage 6 takes this into account
+        when writing `mani.yaml`.
 
-- [ ] 6. [M] Fill in `codeless-workspace/mani.yaml`. Projects:
+- [ ] 6. [M] Fill in `codeless-workspace/mani.yaml`. Projects:        ← next
           - `codeless`   (path: `codeless`, tag: `rust`, `active`)
           - `ai-runner`  (path: `ai-runner`, tag: `rust`, `vendored`,
                           `reference`)
@@ -286,6 +284,12 @@ Expected total: ~8 ticks. If it stretches past 12, halt and reassess.
   `NubeDev / ap@nube-io.com`. Seed commit landed (`init: codeless-
   workspace seed (DOCS, vendored mani binary, vendored ai-runner,
   bootstrap session doc)`).
+- **Tick C (2026-05-12 09:38)** — stages 4 + 5 done. Workspace
+  pushed to `NubeDev/codeless-workspace` (public). The bundled mani
+  binary is a custom build (commands include `release`, `issue`,
+  `introspect`, `check` not in upstream mani). Worth knowing because
+  later loops may want to use these for cross-repo orchestration.
+
 - **Tick B (2026-05-12 09:32)** — stage 3 done with a correction.
   Old codeless tree had a 391-line uncommitted README addition; it
   was committed and pushed as `docs(readme): rationale for forking
