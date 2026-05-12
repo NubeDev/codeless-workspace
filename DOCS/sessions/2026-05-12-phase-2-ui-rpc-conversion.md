@@ -28,8 +28,8 @@ Goal: Drive `@tauri-apps/*` import count from 13 → ≤3 (the two
       10 blocked UI files to call `useRpc()`. Verified end-to-end
       against `MockRpcClient` at `/?mock=1`.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 0 — init)
-Current stage: 1 ← next
+Last tick: 2026-05-12 (stages 1–3 — wire + method types green)
+Current stage: 4 ← next
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2 UI work stacks on
@@ -51,12 +51,12 @@ Scope guardrails:
 ## Stages
 Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
 
-- [ ] 1.  [S] `src/lib/rpc/wire.ts` — FS wire types (`FsEntry`,
+- [x] 1.  [S] `src/lib/rpc/wire.ts` — FS wire types (`FsEntry`,
           `FsReadResult` union, `FsGrepHit`, `FsGlobHit`).
-- [ ] 2.  [S] `src/lib/rpc/methods.ts` — `fs_*` method types
+- [x] 2.  [S] `src/lib/rpc/methods.ts` — `fs_*` method types
           (read_file, write_file, create_file, create_dir,
-          read_dir, search, move, delete, cwd).
-- [ ] 3.  [S] `methods.ts` — `secrets_{set,get,list,rm}` types.
+          read_dir, search, glob, move, delete, cwd).
+- [x] 3.  [S] `methods.ts` — `secrets_{set,get,list,rm}` types.
 - [ ] 4.  [M] `MockRpcClient` — in-memory FS rooted at
           `/home/user/mock-workspace`, in-memory secrets map,
           ~80ms latency, `not_found`/`permission_denied`/`conflict`
