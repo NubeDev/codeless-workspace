@@ -37,8 +37,8 @@ Goal: Replace `MemoryStore` with SQLite-backed persistence; persist
       scheduler in Phase 2b has a real queue to drive; prove
       resumability across a simulated core restart.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 2 — stage 2)
-Current stage: 3 / 9
+Last tick: 2026-05-12 (tick 3 — stage 3)
+Current stage: 4 / 9
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence
@@ -54,10 +54,10 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 2. [M] Repo + Job persistence: `SqliteStore` replaces `MemoryStore`
          for repos and jobs (sqlx queries against the Appendix A tables).
          All existing in-process RPC tests stay green against the new store.
-- [ ] 3. [M] Event persistence + cursor allocation.  ← next `EventBus` writes
+- [x] 3. [M] Event persistence + cursor allocation. `EventBus` writes
          to the `events` table first, then broadcasts; cursor comes
          from the autoincrement column, not an in-memory counter.
-- [ ] 4. [M] `subscribe(since)` replays from SQLite from `since+1`
+- [ ] 4. [M] `subscribe(since)` replays from SQLite from `since+1`  ← next
          upward, then attaches the live broadcast tail without gaps.
 - [ ] 5. [M] Task queue: `enqueue_task`, `lease_next(runner_kind)`,
          `complete_task`, `fail_task`, `release_expired_leases`. Tests
@@ -82,6 +82,27 @@ Likely batching (planning hint, not a contract):
 - Tick 7: stage 9 (S).
 
 ## Notes
+- Stage 3: `EventBus` now owns the `SqlitePool` and is fallible-async
+  on publish (`sqlx::Result<EventCursor>`). The `AtomicI64` cursor
+  counter is gone — cursors come from the `events.cursor` AUTOINCREMENT
+  via `INSERT … RETURNING cursor`, which keeps a single allocator for
+  the column and survives restarts. Persistence ordering: row INSERT
+  first, then `broadcast::send` — readers either see the row first via
+  the (forthcoming) since-replay path or the broadcast first via the
+  live tail, never both, and the cursor monotonicity holds either
+  way. The `Event::*` variant is decomposed by `split_event_json`
+  (one place that knows about `#[serde(tag = "type")]`) into the
+  `type` column (kebab-case label) and a `payload` JSON object that
+  omits the discriminator. This isolates wire-format knowledge from
+  the rest of the bus. Callers all gained `.await.map_err(db_err)?`
+  on publish: `rpc.rs` (4 sites), `driver.rs` (2 sites). `MockRunner`
+  maps a publish failure to `RunnerOutcome::Failed` rather than
+  panic, so a DB error mid-run lands as a clean `job-failed`. New
+  `tests/event_persistence.rs` pins the three contracts:
+  (a) `repo-added` lands with `type='repo-added'`, payload object
+  carrying `repo_id`, no `type` key leaked into payload; (b) cursors
+  are 1, 2, … in publish order; (c) live subscribers still see the
+  envelope with the assigned cursor after persistence.
 - Stage 2: `MemoryStore` is gone; `SqliteStore` (`src/store.rs`) is now
   the sole persistence path for `Repo` and `Job`. All eight methods
   (`insert_repo`, `get_repo`, `remove_repo`, `list_repos`,
