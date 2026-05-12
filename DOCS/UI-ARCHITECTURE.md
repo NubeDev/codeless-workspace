@@ -82,6 +82,14 @@ In `codeless/ui/codeless-ui/src/lib/rpc/`:
   (same caveat).
 - `error.ts` — `RpcError` + HTTP status mapping.
 - `http-sse-client.ts` — REST + SSE implementation for browser/mobile.
+- `tauri-ipc-client.ts` — desktop `RpcClient` impl using `invoke()`
+  for request/reply and Tauri 2 `Channel<T>` for `subscribe()`. The
+  file documents the wire contract (`rpc_<method>`, `rpc_subscribe`,
+  `rpc_unsubscribe`) the `codeless-tauri-desktop` Rust crate will
+  implement in Phase 5. R2 carve-out: this file imports
+  `@tauri-apps/api/core` even though it's not under `src/shells/<shell>/`,
+  because it's a transport implementation living next to its peers
+  (`HttpSseClient`, `MockRpcClient`).
 - `mock-client.ts` — in-memory implementation for dev and tests.
 - `provider.tsx` — React `<RpcProvider>` + `useRpc()` hook.
 - `hooks.ts` — `useRepos`, `useJobs`, `useJob`, `useEventStream`.
@@ -90,43 +98,70 @@ In `codeless/ui/codeless-ui/src/lib/rpc/`:
 
 What is **not** built yet:
 
-- `TauriIpcClient` — second `RpcClient` impl wrapping `invoke()` and
-  Tauri events. Land in Phase 2 alongside the file-by-file conversion
-  (see [`UI-PORT-AUDIT.md`](./UI-PORT-AUDIT.md) "Available now") so
-  the desktop shell stays viable from day one rather than waiting on
-  Phase 5.
 - PTY (`openPty`) and blob upload (`uploadBlob`) on `RpcClient` —
   PTY needs WebSocket; blob upload needs multipart. Both are real but
   small; arrive when the corresponding terminal / upload surface is
-  converted.
+  converted (currently both are in `UI-PORT-AUDIT.md`'s
+  "Blocked on Rust" bucket).
+
+## Capability adapters (`src/lib/shell/`)
+
+Behaviour differences between shells live behind capability
+interfaces, *not* per-shell components. Each adapter has a sensible
+no-op or browser-equivalent default; the desktop shell entry
+overrides specific ones with Tauri-backed implementations. Browser /
+mobile shells get the defaults for free.
+
+| Adapter | Interface lives at | Desktop impl | Browser default |
+|---|---|---|---|
+| Window chrome | `shell/window-controls.ts` | `shells/desktop/window-controls.ts` (Tauri window API) | renders null |
+| External opener | `shell/external-opener.ts` | Tauri `plugin-opener` | `window.open(url, "_blank", "noopener")` |
+| Updater | `shell/updater.ts` | Tauri `plugin-updater` + `plugin-process` | `supported: false` → forced "uptodate" |
+| App info | `shell/app-info.ts` | `getName`/`getVersion`/`platform`/`arch` from Tauri | `{ name: "Codeless", version: "", buildLabel: null }` |
+| Paths | `shell/paths.ts` | Tauri `homeDir()` | returns null; App falls back to workspace heuristics |
+| Autostart | `shell/autostart.ts` | Tauri `plugin-autostart` | `supported: false`; toggle hidden |
+| Settings window | `shell/settings-window.ts` | `invoke("open_settings_window", { tab })` | flips `useInlineSettingsStore`; App renders overlay |
+| Network probe | `shell/network-probe.ts` | Tauri `http_ping` command | `fetch` with `no-cors`; returns 200/0 |
+| KV store | `shell/kv-store.ts` | `LazyStore` per named bucket | `localStorage` with `codeless-<name>:` prefix |
+| Cross-window events | `shell/cross-window-events.ts` | Tauri `emit`/`listen` | in-process `EventTarget` (collapses to same-window callback) |
+
+The KV store and cross-window events use a module-level registry
+(`registerKVStoreFactory`, `registerCrossWindowEvents`) rather than
+React context because they're consumed from non-React call sites
+(persistent settings setters, AI session loaders). All others use
+`<ShellProvider>` and a `use*` hook.
 
 ## The actual Phase 2 grind: convert Terax surfaces
 
-The 31 files in [`UI-PORT-AUDIT.md`](./UI-PORT-AUDIT.md) currently
-import `@tauri-apps/*`. Each one needs to be re-routed through
-`useRpc()`. This is the bulk of Phase 2; nothing else moves the
-product forward more.
+The audit started at 31 files importing `@tauri-apps/*` outside the
+shell zone. The shell-injection grind is now done; every remaining
+file is genuinely blocked on a Rust-side RPC method. Current count:
+**13**, all in [`UI-PORT-AUDIT.md`](./UI-PORT-AUDIT.md)'s "Blocked on
+Rust" bucket.
 
 Status by surface, with the RPC method each conversion needs and
 the matching group in [`UI-PORT-AUDIT.md`](./UI-PORT-AUDIT.md) for
 file-level detail:
 
-| Terax surface | Files | RPC / mechanism | Audit group |
+| Terax surface | Files | RPC / mechanism | Status |
 |---|---|---|---|
-| AI chat panel | `modules/ai/lib/agent.ts` (replace), `composer.tsx`, `lib/native.ts` | `submit_job`, `subscribe`, `stop_job` | Available now |
-| Settings → provider keys | `modules/ai/lib/keyring.ts`, `settings/components/ProviderKeyCard.tsx`, `settings/sections/ModelsSection.tsx` | `secrets.set/get/list/rm` | Blocked on Rust |
+| AI chat panel | `modules/ai/lib/agent.ts` (delete), `composer.tsx`, `lib/native.ts`, `tools/*` (delete executor) | `submit_job` + Stage/Task decomposition driven by the runtime template parser | Blocked — waits on `drive_job` parsing `template_yaml` |
+| Settings → provider keys | `modules/ai/lib/keyring.ts`, `settings/components/ProviderKeyCard.tsx`, `settings/sections/ModelsSection.tsx` | `secrets.set/get/list/rm` | Blocked on Rust (impl exists in `codeless-adapters-host::secrets`; only trait method + transport missing) |
 | File explorer | `modules/explorer/lib/useFileTree.ts`, `lib/contextActions.ts`, `ExplorerSearch.tsx` | `fs.read_dir`, `fs.search`, `fs.move`, `fs.delete` | Blocked on Rust |
 | Editor | `modules/editor/lib/useDocument.ts`, `NewEditorDialog.tsx` | `fs.read_file`, `fs.write_file` | Blocked on Rust |
 | Terminal | `modules/terminal/lib/pty-bridge.ts`, `useTerminalSession.ts` | `pty.open` (WS), `pty.write`, `pty.resize` | Blocked on Rust |
 | Status bar | `modules/statusbar/CwdBreadcrumb.tsx` | `fs.cwd` (or config-source) | Blocked on Rust |
-| Settings window mgmt | `modules/settings/openSettingsWindow.ts`, `settings/main.tsx` | in-app routing (browser/mobile) + shell-injected adapter (desktop) | Shell-injection |
-| Window chrome | `app/App.tsx`, `components/WindowControls.tsx`, `lib/platform.ts`, `modules/preview/PreviewAddressBar.tsx`, `modules/updater/useUpdater.ts` | shell-injected capability interfaces | Shell-injection |
+| Settings window mgmt | `settings/main.tsx`, `SettingsApp.tsx`, `modules/settings/store.ts` | in-app routing (browser/mobile) + Tauri multi-window (desktop) | **Done.** Browser uses `useInlineSettingsStore` + full-screen overlay in `<App />`; desktop still opens a separate Tauri window via `SettingsWindowAdapter`. `settings/main.tsx` remains as the Tauri-only shell entry. |
+| Window chrome | `components/WindowControls.tsx`, `lib/platform.ts`, `modules/preview/PreviewAddressBar.tsx`, `modules/updater/useUpdater.ts`, `settings/sections/AboutSection.tsx`, `GeneralSection.tsx`, `ProviderKeyCard.tsx` | shell-injected capability interfaces | **Done.** See "Capability adapters" above. |
+| Jobs dashboard mount | `modules/jobs/*`, `app/App.tsx`, `modules/tabs/*` | new `"jobs"` tab kind + `Ctrl+J` | **Done.** Singleton tab; `?view=jobs` debug route removed. |
 
 The legitimate target is **zero `@tauri-apps/*` imports outside
-`src/shells/<shell>/`**. The shell entries (`src/shells/desktop/main.tsx`
-specifically) are the *one* place Tauri APIs may be touched directly —
-that's the seam where the `TauriIpcClient` and desktop capability
-adapters get constructed.
+`src/shells/<shell>/`**, with two documented exceptions:
+`src/lib/rpc/tauri-ipc-client.ts` (transport impl) and
+`src/settings/main.tsx` (Tauri-only multi-window entry). The shell
+entries (`src/shells/desktop/main.tsx` specifically) are the seam
+where Tauri APIs are touched directly and where the desktop
+capability adapters get constructed.
 
 ## Where new surfaces fit
 

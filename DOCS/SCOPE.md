@@ -2,7 +2,7 @@
 
 ## One-line summary
 
-Codeless is a staged, reviewable AI coding job runner that manages **many concurrent jobs across many repos**. It runs as a **headless Rust core service** with a browser UI as the primary client and a CLI for power use. It is forked from [`crynta/terax-ai`](https://github.com/crynta/terax-ai), but only the **UI layer** of Terax is reused. The AI runtime is rewritten in Rust so it can serve the browser remotely from a box you own.
+Codeless is a staged, reviewable AI coding job runner that manages **many concurrent jobs across many repos**. It runs as a **headless Rust core service** with three peer control surfaces — a browser UI, a CLI, and an **MCP server**. The UI is the primary surface for humans; the CLI and MCP server are the primary surfaces for everything else (scripts, CI, and AI agents such as Claude Code / Codex driving Codeless without ever opening a browser). It is forked from [`crynta/terax-ai`](https://github.com/crynta/terax-ai), but only the **UI layer** of Terax is reused. The AI runtime is rewritten in Rust so it can serve the browser remotely from a box you own.
 
 ## Why this scope (the key constraint)
 
@@ -59,29 +59,31 @@ A job can:
 
 ## Architecture
 
-The same React UI ships as **browser** (MVP), **Tauri desktop**, and later **Tauri mobile**. The CLI is the power-user surface. All clients drive the same Rust core.
+The same React UI ships as **browser** (MVP), **Tauri desktop**, and later **Tauri mobile**. The CLI and the MCP server are the **headless surfaces** — any human (CLI) or AI agent (MCP) can drive the core without opening a UI. All clients drive the same Rust core through the same RPC trait.
 
 ```
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│  Browser     │  │  Desktop     │  │  Mobile      │  │  CLI         │
-│  (React)     │  │  (Tauri 2)   │  │  (Tauri 2)   │  │  (Rust)      │
-│  [MVP]       │  │  [Phase 5]   │  │  [Phase 6]   │  │  [Phase 2]   │
-└──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-       │ SSE+REST+WS     │ Tauri IPC       │ SSE+REST+WS     │ in-process
-       │ (hosted)        │ (local)         │ (hosted)        │ or SSE+REST+WS
-       ▼                 ▼                 ▼                 ▼
-   ╔═══════════════════════════════════════════════════════════════╗
-   ║                    codeless-runtime (Rust)                    ║
-   ║   Repo → Job → Stage → Task state machine                     ║
-   ║   Scheduler • Queue • Tools • Reviews • Event bus • SQLite    ║
-   ║   Worktree manager • Secrets abstraction                      ║
-   ║                                                               ║
-   ║   Coding loop (any of, user picks per job):                   ║
-   ║       ai-runner::Claude / Codex / Copilot  (CLI wrappers)     ║
-   ║       ai-runner::Anthropic / OpenAI         (REST + API key)  ║
-   ║   Helper role (optional):                                     ║
-   ║       Rig — planner, reviewer, summariser, job memory         ║
-   ╚═══════════════════════════════════════════════════════════════╝
+┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐
+│ Browser  │  │ Desktop  │  │ Mobile   │  │ CLI      │  │ MCP clients  │
+│ (React)  │  │ (Tauri 2)│  │ (Tauri 2)│  │ (Rust)   │  │ (Claude Code,│
+│ [MVP]    │  │ [Phase 5]│  │ [Phase 6]│  │ [Phase 2]│  │  Codex, ...) │
+│          │  │          │  │          │  │          │  │ [Phase 2]    │
+└────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──────┬───────┘
+     │ SSE+       │ Tauri      │ SSE+       │ in-process   │ MCP stdio
+     │ REST+WS    │ IPC        │ REST+WS    │ or SSE+      │ or MCP HTTP
+     │ (hosted)   │ (local)    │ (hosted)   │ REST+WS      │ (Streamable)
+     ▼            ▼            ▼            ▼              ▼
+   ╔════════════════════════════════════════════════════════════════════╗
+   ║                       codeless-runtime (Rust)                      ║
+   ║   Repo → Job → Stage → Task state machine                          ║
+   ║   Scheduler • Queue • Tools • Reviews • Event bus • SQLite         ║
+   ║   Worktree manager • Secrets abstraction                           ║
+   ║                                                                    ║
+   ║   Coding loop (any of, user picks per job):                        ║
+   ║       ai-runner::Claude / Codex / Copilot  (CLI wrappers)          ║
+   ║       ai-runner::Anthropic / OpenAI         (REST + API key)       ║
+   ║   Helper role (optional):                                          ║
+   ║       Rig — planner, reviewer, summariser, job memory              ║
+   ╚════════════════════════════════════════════════════════════════════╝
                 ▲                                ▲
                 │                                │
        codeless-adapters-host          codeless-adapters-desktop
@@ -89,7 +91,7 @@ The same React UI ships as **browser** (MVP), **Tauri desktop**, and later **Tau
         local FS, secrets file)         native dialogs)
 ```
 
-> **MVP scope:** browser + CLI + core, deployed as a single binary on a box you own. Tauri desktop and mobile are deferred but architecturally first-class — the crate split and the "one React codebase" rule below guarantee they remain a packaging exercise, not a re-architecture.
+> **MVP scope:** browser + CLI + MCP server + core, deployed as a single binary on a box you own. Tauri desktop and mobile are deferred but architecturally first-class — the crate split and the "one React codebase" rule below guarantee they remain a packaging exercise, not a re-architecture. The CLI and MCP server are *not* deferred: they ship in Phase 2 so the product is fully usable headless before the browser shell exists.
 
 ### Crate layout (load-bearing, not aspirational)
 
@@ -103,8 +105,9 @@ The Rust side is **explicitly split into reusable crates** so that browser, desk
 | `codeless-adapters-host` | Worktree manager, shell, PTY, `ClaudeRunner`/`CodexRunner`/etc., local FS, secrets-file backend. | ❌ | ❌ | Process spawning gated here. Never compiled into mobile. |
 | `codeless-adapters-desktop` | OS-keychain secrets backend, native file dialogs. **Created when there is more than one thing to put in it** — until then, lives inside `codeless-tauri-desktop`. | ❌ | ❌ | Most things first thought of as "desktop" actually live in `adapters-host`. |
 | `codeless-server` | Hosted HTTP binary: axum SSE + REST + WS surface, auth middleware. Depends on `runtime` + `adapters-host`. | n/a | n/a | The MVP shell. |
+| `codeless-mcp` | MCP server binary (stdio + Streamable HTTP). Exposes the **same RPC trait** as `codeless-server` as MCP tools/resources/prompts. Depends on `runtime` + `adapters-host` for local mode, or on `client` when proxying to a remote hosted core. | n/a | n/a | The headless agent-driven surface. Parity with CLI is enforced in CI — see "MCP surface" below. |
 | `codeless-client` | SSE + REST + WS client. Used by browser and mobile webview. | ✅ | ✅ | The single thin-client library. |
-| `codeless-cli` | CLI binary; calls `runtime` in-process, or `client` over network when pointed at a hosted core. | — | — | |
+| `codeless-cli` | CLI binary; calls `runtime` in-process, or `client` over network when pointed at a hosted core. Bundles `codeless mcp` as a subcommand that execs `codeless-mcp` so a single binary serves both surfaces. | — | — | |
 | `codeless-tauri-desktop` | Tauri app; depends on `runtime` + `adapters-host` (+ `adapters-desktop` once it exists). | — | — | Phase 5. |
 | `codeless-tauri-mobile` | Tauri 2 mobile app; depends **only on** `types` + `client`. | ✅ | ✅ | Phase 6. Cannot accidentally pull in process-spawning code. |
 
@@ -555,7 +558,7 @@ This means the "provider runner abstraction" is **not** a Phase 1 deliverable �
 
 ## CLI surface
 
-The CLI must be able to do everything the GUI can do. The GUI is a convenience.
+**The CLI and the MCP server must each be able to do everything the GUI can do.** The GUI is a convenience; the two headless surfaces are not. Every feature ships with CLI + MCP coverage on day one, and parity is a CI check (see "MCP surface" below), not a convention. The MCP surface mirrors this CLI command-for-command, so anything documented here is also reachable as an MCP tool unless it carries an explicit `opt_out_reason` (today: `codeless secrets get/set` and `codeless auth *` — secret material does not cross an MCP boundary).
 
 > **Minimum dogfoodable CLI surface** (Phase 1 → stable from Phase 2): `codeless run --once`, `codeless chat`, `codeless tail`, `codeless session attach`. These four are what makes "AI agents and devs can test against the CLI before the browser shell exists" real. Everything below is the full Phase 2 surface — implement the four first, then the rest.
 
@@ -649,6 +652,53 @@ The SSE stream carries: `job-queued`, `job-promoted`, `job-started`, `stage-star
 
 gRPC is **not** in scope for the MVP. It can come later for runner-to-core comms in a distributed deployment.
 
+## MCP surface (Phase 2 — headless control plane for AI agents)
+
+Codeless exposes the **same operations** as the SSE+REST+WS surface through an MCP server, so any MCP-capable agent (Claude Code, Codex, a future bespoke automation) can drive jobs without a UI. This is a load-bearing requirement: "drive Codeless from an agent over MCP, with no UI running" is one of the product's primary use cases. The UI is never allowed to be the only way to do anything.
+
+### Transports
+
+- **stdio MCP** — the agent spawns `codeless mcp` (or `codeless-mcp`) as a child process. This is the default for local single-user dev and matches Claude Code's expectation for MCP servers. No bearer token: same in-process trust model as the local CLI (R5 / "Local CLI bypasses auth"). The runtime is in-process; the worktree manager and runners are the same instances the CLI would use.
+- **Streamable HTTP MCP** — `codeless mcp --listen :PORT` (or `codeless-mcp --listen`) for a long-running hosted core that multiple agents can attach to. Reuses the same bearer token as `codeless-server`. The MCP HTTP server is the same axum process or a sibling — the choice is an implementation detail, but they share the auth middleware.
+
+### Tools (each mirrors a method on the RPC trait)
+
+```
+codeless.repo.add | .list | .remove
+codeless.job.create | .start | .stop | .status | .list
+codeless.job.run_once                # ad-hoc, no-YAML entry point — the dogfood path
+codeless.job.chat                    # interactive REPL turn, returned as a streamed tool result
+codeless.review.list | .approve | .comment | .stop
+codeless.cost.summary | .caps.get | .caps.set
+codeless.session.list | .attach
+codeless.provider.list
+codeless.secrets.list                # names only; .get/.set are intentionally CLI-only
+```
+
+### Resources (read-only, subscribable)
+
+```
+codeless://repos                     # full repo list
+codeless://jobs                      # all jobs, filterable
+codeless://jobs/{id}                 # job state + stage tree
+codeless://events?since=<cursor>     # the same event stream as SSE, served as an MCP resource subscription
+codeless://reviews?status=pending
+```
+
+Resource subscriptions are the agent-facing equivalent of the SSE stream: the MCP host re-delivers updates as `notifications/resources/updated` so the agent can react to `review-requested`, `verify-failed`, `cap-tripped`, etc. in real time.
+
+### Prompts
+
+The job templates registered under `codeless job` are surfaced as MCP prompts so an agent's host can present them to the user (or fill them in itself) before kicking a job off.
+
+### Parity is a CI check, not a convention
+
+Adding a method to the RPC trait without adding it to the MCP tool list **fails the build**. The same check covers the CLI: every RPC method has a CLI entry point and an MCP tool, or carries an explicit `opt_out_reason` in a small registry that CI reads. This is how the rule "CLI and MCP each do everything the GUI does" survives drift over time. The mechanism (proc-macro, build.rs, or a hand-maintained table validated by a unit test) is left to the implementer; the *check* is mandatory.
+
+### What never crosses the MCP boundary
+
+`codeless.secrets.get`, `codeless.secrets.set`, and the entire `codeless.auth.*` surface are **not** exposed as MCP tools. An MCP client is an LLM running prompts that may be attacker-controlled (a malicious doc, a poisoned tool result, a prompt-injection inside a repo). Secret material and the bearer-token lifecycle stay under the user's direct hand — CLI for local, browser-with-bearer for hosted. The `opt_out_reason` for these is `"secret material; out-of-band only"`.
+
 ## Provider runners
 
 All runners implement the existing `Runner` trait from `ai-runner` (see "Runner layer" above). Three categories, one trait:
@@ -699,7 +749,7 @@ The MVP is **Phase 3**: browser UI talking to a single-tenant hosted core on a b
 
 ### Phase 1 — Core skeleton + transport rule + thinnest possible run
 
-- Stand up the full crate split from day one: `codeless-types`, `codeless-rpc`, `codeless-runtime`, `codeless-adapters-host`, `codeless-server` (empty stub), `codeless-client`, `codeless-cli`, `codeless-tauri-desktop` (empty stub). Stubbing the optional shells now keeps the dependency direction honest. (`codeless-adapters-desktop` is created later — see crate table.)
+- Stand up the full crate split from day one: `codeless-types`, `codeless-rpc`, `codeless-runtime`, `codeless-adapters-host`, `codeless-server` (empty stub), `codeless-mcp` (empty stub), `codeless-client`, `codeless-cli`, `codeless-tauri-desktop` (empty stub). Stubbing the optional shells now keeps the dependency direction honest, and stubbing `codeless-mcp` from Phase 1 forces the RPC trait to stay transport-agnostic (Phase 2 fills it in). (`codeless-adapters-desktop` is created later — see crate table.)
 - Define the RPC trait and an in-process implementation
 - Wire-type generation from Rust to TypeScript via `specta` (+ `tauri-specta` ready for Phase 5)
 - SQLite schema with path-provider abstraction for **repos**, jobs, stages, tasks, sessions, events, reviews — event schema expressive enough for DAG state on day one
@@ -725,6 +775,8 @@ The MVP is **Phase 3**: browser UI talking to a single-tenant hosted core on a b
 - Review approval flow, gated through CLI commands
 - Resumable jobs after a core restart (worktree state + queue state both recover from SQLite)
 - `codeless chat` / `codeless tail` / `codeless session attach` — the "drive from any terminal" surface
+- **`codeless-mcp` server** (stdio + Streamable HTTP) exposing the full RPC surface as MCP tools/resources/prompts — so Claude Code, Codex, and any other MCP-capable agent can drive Codeless headless from Phase 2 onward, before the browser shell exists
+- **Parity check in CI**: every RPC method has a CLI command *and* an MCP tool, or an explicit `opt_out_reason` in a registry that the test reads — failing this fails the build
 - Outbound notification webhook (ntfy.sh / Discord / generic) on review-requested and job-failed
 - Smoke endpoint for the SSE stream: delivers `job-queued`, `job-started`, `stage-started`, `task-completed`, `job-failed` events end-to-end (happy path *and* failure path)
 
