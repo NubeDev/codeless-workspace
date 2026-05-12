@@ -29,7 +29,10 @@ adapter (clipboard, file picker, biometric).
 ## Reuse list (with concrete upstream paths)
 
 Maps SCOPE.md's "Reuse (visual layer)" bullets to actual files at the
-pinned SHA.
+pinned SHA. Overlaps with the surface table in
+[`UI-ARCHITECTURE.md`](./UI-ARCHITECTURE.md); kept separately because
+the value here is the *concrete upstream paths* — useful when
+diffing against upstream during the conversion grind.
 
 | SCOPE bullet | Upstream source |
 |---|---|
@@ -65,13 +68,24 @@ provides the equivalent over `RpcClient`.
 
 ## Tauri-coupled files (R2 violation surface)
 
-SCOPE.md estimated "~35 files". Actual numbers at the pinned SHA:
+Counts at the current tree (excluding `*.md`, `src/shells/<shell>/*`
+which are legitimate injection points per
+[`UI-ARCHITECTURE.md`](./UI-ARCHITECTURE.md), and a doc-comment
+false-positive in `src/lib/rpc/client.ts:5` that mentions
+`@tauri-apps/api/*` in prose):
 
-- **31 files import any `@tauri-apps/*` API or plugin** — total surface
+- **31 files import any `@tauri-apps/*` API or plugin** — the surface
   to refactor through the `RpcClient` boundary or shell-injected
   interfaces (clipboard, file picker, biometric).
 - **11 files import `@tauri-apps/api/core`** specifically (the R2
-  banned import):
+  banned import).
+- **The conversion target is zero outside `src/shells/<shell>/`.** The
+  shell entry files are *expected* to import `@tauri-apps/*`
+  directly — that is where the `TauriIpcClient` and desktop
+  capability adapters are constructed. The desktop entry
+  (`src/shells/desktop/main.tsx`) currently does so by design.
+
+The 11 `api/core` files (the conversion priority list):
 
 ```
 src/modules/ai/lib/composer.tsx
@@ -124,77 +138,76 @@ src/settings/sections/ModelsSection.tsx
 src/settings/SettingsApp.tsx
 ```
 
-## Suggested Phase 2 stage skeleton
+## Phase 2 work groups
 
-Not a contract — feeds the Phase 2 session doc. Stages 0–2 + the
-`MockRpcClient`-friendly bits of stage 6 are landed; the file-by-file
-conversion grind is the bulk of what remains. Stage order reflects
-unblock-by-RPC: surfaces whose RPC methods exist today come first;
-surfaces blocked on `RpcServer` additions wait for them.
+Not a contract — feeds the Phase 2 session doc. Grouped by
+unblock-status rather than numbered, because order is determined by
+which RPC methods exist today.
 
-**Landed (Phase 2 stage 0–2 equivalents):**
+### Landed
 
-- [x] 0. Upstream tree copied into `codeless/ui/codeless-ui/`,
+- [x] **Upstream tree in place.** `codeless/ui/codeless-ui/` copied,
   strings renamed terax→codeless, `NOTICE.md` + `LICENSE` in place,
   `pnpm dev` builds, `pnpm exec tsc --noEmit` clean.
-- [x] 1. `RpcClient` interface + `HttpSseClient` + `MockRpcClient` +
-  `<RpcProvider>` + `useRpc()`/`useRepos()`/`useJobs()`/`useJob()`/
-  `useEventStream()` hooks. Bearer-token + base-URL config.
-- [x] 2. `src/components/ai-elements/` already lifted (no Tauri
-  imports — landed with the initial copy).
+- [x] **RPC boundary layer.** `RpcClient` interface, `HttpSseClient`,
+  `MockRpcClient`, `<RpcProvider>`, `useRpc()` / `useRepos()` /
+  `useJobs()` / `useJob()` / `useEventStream()` hooks. Bearer-token
+  + base-URL config. Lives in `src/lib/rpc/`.
+- [x] **`ai-elements`.** `src/components/ai-elements/` lifted with no
+  Tauri imports.
+- [x] **Jobs dashboard scaffolding** (new — no upstream equivalent).
+  Lives in `src/modules/jobs/` (`JobsDashboard`, `JobRow`, `JobDetail`,
+  `JobTimeline`, `SubmitJobDialog`, `StatusBadge`). Currently rendered
+  via a `?view=jobs` debug shortcut; ship-quality wiring mounts inside
+  `<App />` as a new tab/sidebar entry (still to do).
 
-**Available now — RPC method exists in `codeless-rpc`:**
+### Available now — RPC method exists in `codeless-rpc`
 
-- [S] 6. **AI chat panel surface.** Replace `src/modules/ai/lib/agent.ts`
+- [M] **AI chat panel conversion.** Replace `src/modules/ai/lib/agent.ts`
   (Vercel AI SDK in-browser loop) with `useRpc().call("submit_job", …)`
   + `useEventStream({scope:"job", job_id}, …)` rendering `ai-token`
   deltas as they arrive. Strip `composer.tsx` / `lib/native.ts` Tauri
   imports. Keep tool *schemas* in `src/modules/ai/tools/*` for UI
   rendering; delete the executor code (tools run in Rust).
-- [S] 8. **Repo-grouped jobs dashboard** (new — no upstream
-  equivalent). *Code already in `src/modules/jobs/`; needs to mount
-  inside `<App />` as a tab/sidebar entry, not replace it.*
-- [S] 9. **Per-job stage/task timeline** (new). *Code already in
-  `src/modules/jobs/JobTimeline.tsx`; mounts inside the same dashboard
-  surface.*
-- [S] 9b. **`TauriIpcClient`** — second `RpcClient` impl. Mechanical TS
-  work; keeps the desktop shell viable from day one without forcing a
-  conversion of every Terax file before the Tauri host can run.
+- [S] **Mount jobs dashboard inside `<App />`.** Pick a tab / sidebar
+  slot in the Terax shell layout, drop the `?view=jobs` shortcut.
+- [S] **`TauriIpcClient`.** Second `RpcClient` impl wrapping `invoke()`
+  and Tauri events. Mechanical TS work; keeps the desktop shell viable
+  from day one rather than waiting on the full conversion grind.
 
-**Blocked on Rust `RpcServer` additions:**
+### Blocked on Rust `RpcServer` additions
 
-- [S] 7. Settings → provider keys (`ProviderKeyCard.tsx`,
+- [S] **Settings → provider keys** (`ProviderKeyCard.tsx`,
   `ModelsSection.tsx`, `lib/keyring.ts`) — needs
-  `RpcServer::secrets_{set,get,list,rm}`. The Rust impl exists in
-  `codeless-adapters-host::secrets`; only the trait method + transport
-  binding is missing.
-- [M] 4. File explorer (`useFileTree.ts`, `contextActions.ts`,
-  `ExplorerSearch.tsx`) — needs `RpcServer::fs_{read_dir,search,move,
-  delete}`.
-- [M] 3. Editor (`useDocument.ts`, `NewEditorDialog.tsx`) — needs
+  `RpcServer::secrets_{set,get,list,rm}`. The Rust impl already exists
+  in `codeless-adapters-host::secrets`; only the trait method +
+  transport binding is missing.
+- [M] **File explorer** (`useFileTree.ts`, `contextActions.ts`,
+  `ExplorerSearch.tsx`) — needs `RpcServer::fs_{read_dir,search,move,delete}`.
+- [M] **Editor** (`useDocument.ts`, `NewEditorDialog.tsx`) — needs
   `RpcServer::fs_{read_file,write_file}`.
-- [M] 5. Terminal (`pty-bridge.ts`, `useTerminalSession.ts`) — needs
+- [M] **Terminal** (`pty-bridge.ts`, `useTerminalSession.ts`) — needs
   WebSocket-backed `RpcServer::pty_*` (or a separate `PtyClient`
   surface — open question). PTY is the only RPC method that doesn't
   fit the request/reply shape; it earns its own transport.
-- [S] Status bar (`CwdBreadcrumb.tsx`) — needs `RpcServer::fs_cwd` or
-  a config-source equivalent.
+- [S] **Status bar** (`CwdBreadcrumb.tsx`) — needs `RpcServer::fs_cwd`
+  or a config-source equivalent.
 
-**Shell-injection (no RPC, capability adapter pattern):**
+### Shell-injection (no RPC, capability adapter pattern)
 
-- [S] Settings window mgmt (`openSettingsWindow.ts`, `settings/main.tsx`)
-  — multi-window is Tauri-only; replace with in-app routing for browser
-  / mobile, keep a shell-injected adapter for desktop.
-- [S] Window chrome (`WindowControls.tsx`, `lib/platform.ts`,
+- [S] **Settings window mgmt** (`openSettingsWindow.ts`,
+  `settings/main.tsx`) — multi-window is Tauri-only; replace with
+  in-app routing for browser / mobile, keep a shell-injected adapter
+  for desktop.
+- [S] **Window chrome** (`WindowControls.tsx`, `lib/platform.ts`,
   `app/App.tsx` Tauri bits, `modules/preview/PreviewAddressBar.tsx`,
-  `modules/updater/useUpdater.ts`) — capability-adapter interfaces, one
-  per concern. Browser/mobile shells inject no-op or web-equivalent
+  `modules/updater/useUpdater.ts`) — capability-adapter interfaces,
+  one per concern. Browser/mobile shells inject no-op or web-equivalent
   implementations.
 
-**Wrap-up:**
+### Wrap-up
 
-- [S] Audit for any leftover `terax` strings, delete
-  `/tmp/upstream-ui-ref`, confirm zero `@tauri-apps/api/core` imports
-  under `codeless/ui/codeless-ui/src/` outside the desktop-shell entry.
-- [S] Wire the specta codegen output from `codeless-types` into the
-  UI build so `wire.ts` is generated, not maintained.
+- [S] Wire the specta codegen output from `codeless-types` into the UI
+  build so `wire.ts` and `methods.ts` are generated, not hand-mirrored.
+- [S] Audit pass: zero `@tauri-apps/*` imports outside
+  `src/shells/<shell>/`; zero `terax` strings outside `NOTICE.md`.

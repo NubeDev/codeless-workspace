@@ -37,6 +37,18 @@ codeless-workspace/        ← this repo (NubeDev/codeless-workspace, public)
 The inner `codeless/` repo has its own commits, branches, PRs, and
 GitHub history. The workspace tracks shared tooling and docs only.
 
+The React UI lives **inside** the inner repo at
+[`codeless/ui/codeless-ui/`](./codeless/ui/codeless-ui/) — a
+Terax-derived React 19 + TypeScript app that already includes editor,
+terminal, file explorer, AI chat panel, settings, and themes. It is
+the single UI that ships to all four shells (browser, Tauri desktop,
+iOS, Android). New work converts Tauri-coupled call sites to use
+`RpcClient`; the load-bearing mental model is
+[`DOCS/UI-ARCHITECTURE.md`](./DOCS/UI-ARCHITECTURE.md), the
+file-by-file conversion list is
+[`DOCS/UI-PORT-AUDIT.md`](./DOCS/UI-PORT-AUDIT.md). Read those before
+touching anything under `codeless/ui/`.
+
 ## Hard rules — violating any of these halts work
 
 These rules are enforceable by `cargo check` or simple grep. Trip one
@@ -176,4 +188,7 @@ a successor. You still have to:
 - Loop kickoff template: [`DOCS/JOB-LOOP-KICKOFF.template.md`](./DOCS/JOB-LOOP-KICKOFF.template.md)
 - Multi-repo workflow: [`DOCS/MANI.md`](./DOCS/MANI.md)
 - Active session docs: [`DOCS/sessions/`](./DOCS/sessions/)
+- UI architecture (one codebase, four shells): [`DOCS/UI-ARCHITECTURE.md`](./DOCS/UI-ARCHITECTURE.md)
+- UI conversion grind (per-file worklist): [`DOCS/UI-PORT-AUDIT.md`](./DOCS/UI-PORT-AUDIT.md)
+- UI tree: [`codeless/ui/codeless-ui/`](./codeless/ui/codeless-ui/) — Terax-derived React + TS, single source for all four shells
 - Project memory (per-repo): [`codeless/CODELESS.md`](./codeless/CODELESS.md)
