@@ -25,8 +25,8 @@ Goal: Finish the remaining SCOPE.md Phase 2 deliverables — CLI
       ready for browser-shell work (Phase 3) without further CLI
       churn.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 3)
-Current stage: 4 / 7
+Last tick: 2026-05-12 (stage 4)
+Current stage: 5 / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2c stacks on the same
@@ -64,11 +64,11 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          and calls `submit_job`. Test fixture exercises a 2-stage
          job; round-trip the YAML through serde so a syntax error
          surfaces with line/col.
-- [ ] 4. [S] CLI tail: `codeless tail <job-id>` subscribes to  ← next
+- [x] 4. [S] CLI tail: `codeless tail <job-id>` subscribes to
          events for the job and streams JSON-line output to stdout
          until terminal status. Reuses the subscriber path that
          `run --once` already exercises.
-- [ ] 5. [M] Notifier trait + generic webhook backend. Triggers on
+- [ ] 5. [M] Notifier trait + generic webhook backend. Triggers on  ← next
          `JobFailed` + `ReviewRequested`. Config lives alongside
          the secrets file (single-tenant). Backend posts JSON to a
          configurable URL with HMAC signing; test against a
@@ -108,6 +108,17 @@ Likely batching:
   Integration test `run_with_claude_runner_streams_ai_events`
   installs the fake `claude` binary used by phase 2b and asserts
   `ai-token` + `ai-message-complete` + `job-completed` reach stdout.
+- Stage 4: `codeless tail <job-id>` subscribes via
+  `EventFilter::Job` with `since: Some(EventCursor(0))` so the
+  replay catches every persisted envelope before going live; `None`
+  in the bus contract means "live only", which would silently
+  hang on an already-terminal job. JSON-line per envelope, exits
+  0 on `job-completed`, non-zero on `job-failed` / `job-stopped`.
+  `--timeout-secs` flag (default 600, `0` disables) bounds the
+  wait. Integration tests drive a job through `drive_job` +
+  `MockRunner` so the events table is fully populated, then
+  subprocess the CLI and assert the four framing events plus an
+  invalid-id rejection.
 - Stage 3: `codeless job submit <file.yaml>` parses a typed
   `JobTemplate` (repo / runner / prompt / branch / stages / caps)
   via `serde_yaml` with `#[serde(deny_unknown_fields)]` so a typo
