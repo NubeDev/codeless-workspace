@@ -37,8 +37,8 @@ Goal: Replace `MemoryStore` with SQLite-backed persistence; persist
       scheduler in Phase 2b has a real queue to drive; prove
       resumability across a simulated core restart.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 5 — stage 5)
-Current stage: 6 / 9
+Last tick: 2026-05-12 (tick 6 — stages 6+7)
+Current stage: 7 / 9
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence
@@ -62,9 +62,9 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 5. [M] Task queue: `enqueue_task`, `lease_next(runner_kind)`,
          `complete_task`, `fail_task`, `release_expired_leases`. Tests
          pin "no double-lease" and "expired lease reclaim".
-- [ ] 6. [S] Concurrency caps honoured by `lease_next` (global +  ← next
+- [x] 6. [S] Concurrency caps honoured by `lease_next` (global +
          per-repo + per-runner). Config struct fed at construction.
-- [ ] 7. [S] Lease heartbeat helper + a startup-time reaper for stale
+- [ ] 7. [S] Lease heartbeat helper + a startup-time reaper for stale  ← next
          leases. Idempotent; safe to call repeatedly.
 - [ ] 8. [M] Resumability: integration test that builds a runtime,
          queues a job + tasks, drops the runtime, rebuilds against
@@ -82,6 +82,21 @@ Likely batching (planning hint, not a contract):
 - Tick 7: stage 9 (S).
 
 ## Notes
+- Stage 6: `QueueConfig { max_global, max_per_repo, max_per_runner }`
+  in a new `queue_config.rs`. Default = unlimited. `SqliteStore::
+  with_config(pool, caps)` injects the caps; `new(pool)` keeps the
+  unlimited default. `lease_next`'s inner SELECT now carries three
+  `(? IS NULL OR (count) < ?)` clauses, one per scope — bound twice
+  each (so binds total: holder, expires, now, runner, gcap×2,
+  rcap×2, pcap×2). Atomicity comes for free: the running-count and
+  the UPDATE run as one statement, SQLite serialises writers, and a
+  second caller racing on the same cap sees the first claim in the
+  count and is rejected by the WHERE. Four new tests in
+  `tests/queue_caps.rs` pin: global cap blocks second lease,
+  per-runner cap isolates kinds (mock saturated, claude still
+  proceeds), per-repo cap isolates repos (next ordinal-eligible task
+  picked from an unsaturated repo), and completion frees a slot for
+  the next claim.
 - Stage 5: lease-based task queue on `SqliteStore`. Seven new methods:
   `insert_stage` (test seed support), `enqueue_task`, `lease_next`,
   `complete_task`, `fail_task`, `heartbeat_task`,
