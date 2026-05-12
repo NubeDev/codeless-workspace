@@ -97,6 +97,14 @@ location.reload();
   same repo. With the default factory only the `mock` runner is
   wired; `--enable-claude` / `--enable-anthropic` on `codeless serve`
   light up the real ones.
+- Each completed job's detail sheet carries a **Handover** tab. The
+  runtime writes `runs/<job_id>/handover.md` into the worktree on
+  termination — four canonical sections (Done / Next / What you need
+  to know / Open questions, per [DOCS/JOB-MODEL.md](DOCS/JOB-MODEL.md)).
+  Mock jobs get a default fallback; real runners (claude) emit a
+  fenced ```handover block at the end of their final reply which the
+  runtime extracts verbatim, with a truncated-tail fallback if the
+  block is missing or malformed.
 
 ## Real runner: Claude Code
 
