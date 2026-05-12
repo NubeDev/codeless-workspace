@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:18
-Current stage: 7 / 12
+Last tick: 2026-05-12 17:22
+Current stage: 8 / 12
 
 Repo:        codeless
 Branch:      master
@@ -111,11 +111,13 @@ Phase B — `fs.*` RPC vertical slice (editor + explorer onto real server):
        wire result for `fs_read_file` is the minimal `{ content }`
        — binary / over-limit variants land when the editor needs
        them, not before. Snapshots + generated wire.ts regenerated.
-- [ ] 7. [M] `codeless-adapters-host::fs`: a single host implementation
-       backed by `tokio::fs`, scoped to a configured root (refuse
-       traversal outside the workspace root). Unit tests against a
-       `tempfile::tempdir`. R1 reminder: this is the only crate
-       allowed to touch the OS filesystem.
+- [x] 7. [M] `codeless-adapters-host::fs::HostFs` implemented with
+       `tokio::fs`, scoped to a canonicalised root. Resolves paths via
+       `Component` walk then post-canonicalize prefix check so
+       symlinks pointing outside the root are caught. 9 unit tests
+       cover round-trip, sorted listings, traversal/absolute/symlink
+       rejection, non-utf8 typed error, missing-path stat returns
+       None, bad-root caught at construction.
 - [ ] 8. [S] `codeless-runtime`: hold an `Arc<dyn FsAdapter>` (or the
        concrete `HostFs`) alongside the existing adapters; delegate
        the four new `RpcServer` methods.
@@ -167,6 +169,9 @@ Likely batching (planning hint, not a contract):
   workspaces (out of scope for this loop).
 
 ## Tick log
+- Tick 7 (2026-05-12 17:22): stage 7. HostFs + traversal-rejection
+  trust gate. Stat returns Option to let callers probe existence
+  without catching NotFound.
 - Tick 6 (2026-05-12 17:18): stages 5 + 6. fs types in
   `codeless-types::fs`; method-arg wrappers in `codeless-rpc::methods`;
   trait extended with 4 fs methods; both impls stubbed. Wire shape for
