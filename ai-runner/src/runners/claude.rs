@@ -250,15 +250,27 @@ impl Runner for ClaudeRunner {
                                         });
                                     }
                                     let name = block["name"].as_str().unwrap_or("").to_string();
+                                    // codeless-patch-001: forward block["input"] so
+                                    // downstream consumers (the codeless event bus, then the
+                                    // UI timeline) can render the tool's actual arguments
+                                    // instead of the previous empty-parens `Bash()` /
+                                    // `Write()`. The Anthropic content-block schema always
+                                    // includes `input` for `tool_use`; treat its absence /
+                                    // null as "no args" rather than forwarding a JSON null.
+                                    let input = match &block["input"] {
+                                        serde_json::Value::Null => None,
+                                        other => Some(other.clone()),
+                                    };
+                                    let id = block["id"].as_str().map(str::to_owned);
                                     cb_emit(
                                         &tx_cb,
                                         Event {
                                             session_id: sid.clone(),
                                             provider: provider_str.clone(),
                                             kind: EventKind::ToolUse {
-                                                id: None,
+                                                id,
                                                 name: name.clone(),
-                                                input: None,
+                                                input,
                                             },
                                         },
                                     );
