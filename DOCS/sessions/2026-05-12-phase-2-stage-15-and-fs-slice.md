@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 16:57
-Current stage: 3 / 12
+Last tick: 2026-05-12 17:01
+Current stage: 4 / 12
 
 Repo:        codeless
 Branch:      master
@@ -76,14 +76,26 @@ Phase A — Specta codegen covers RPC methods (replaces hand-mirrored TS):
        as `cargo run -p codeless-rpc --example wire_ts` — example
        targets resolve dev-dependencies, so `specta-typescript` does
        not leak into mobile-reach builds.
-- [ ] 3. [M] Replace hand-mirrored `ui/codeless-ui/src/lib/rpc/wire.ts`   ← next
-       and `methods.ts` with re-exports of the generated module. UI
-       must still typecheck; `MockRpcClient`, `HttpSseClient`, and
-       `TauriIpcClient` keep working unchanged.
-- [ ] 4. [S] CI snapshot check: a GitHub Actions step (or `mani` task)
+- [x] 3. [M] Replaced hand-mirrored core types in
+       `ui/codeless-ui/src/lib/rpc/wire.ts` with `export * from
+       "./generated/wire"`. Fs/shell forward-declared types stay in
+       `wire.ts` until their Rust counterparts land (stages 5–7).
+       `methods.ts` is intentionally untouched: the hand-mirrored
+       `ListReviewsArgs` disagrees with the Rust shape (UI has
+       `job_id`/`pending_only`, Rust has `status`), so swapping it
+       cascades into call-site changes that don't fit a single tick.
+       Tracked as stage 4b below.
+- [ ] 4. [S] CI snapshot check: a GitHub Actions step (or `mani` task)   ← next
        that runs the wire-ts codegen and `git diff --exit-code` against
        the committed generated file, so drift between Rust types and
        UI types becomes a CI failure.
+- [ ] 4b. [M] Reconcile `methods.ts` hand-mirrored RPC arg/result
+       shapes with the codegen surface, starting with
+       `ListReviewsArgs` (UI uses `job_id`/`pending_only`; Rust uses
+       `stage_id`/`status`). Decide the canonical shape (Rust wins
+       per CLAUDE.md "code is the source"), update call sites, then
+       re-export from `./generated/wire`. May surface other drifts;
+       split further as needed.
 
 Phase B — `fs.*` RPC vertical slice (editor + explorer onto real server):
 
@@ -152,6 +164,13 @@ Likely batching (planning hint, not a contract):
   workspaces (out of scope for this loop).
 
 ## Tick log
+- Tick 3 (2026-05-12 17:01): stage 3. `wire.ts` now re-exports the
+  generated module for core types; fs/shell forward declarations kept
+  alongside. Discovered a shape mismatch between UI's `ListReviewsArgs`
+  (`job_id`, `stage_id`, `pending_only`) and Rust's (`stage_id`,
+  `status`); cascades into UI call sites if reconciled in this tick.
+  Split it out as stage 4b rather than expand stage 3's diff. UI tsc
+  passes; Rust unchanged but clean.
 - Tick 2 (2026-05-12 16:57): stage 2. Codegen lives as `cargo run -p
   codeless-rpc --example wire_ts`. Picked example over `[[bin]]` because
   examples resolve dev-dependencies; that keeps `specta-typescript` out
