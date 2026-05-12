@@ -42,8 +42,8 @@ Goal: Stand up the `codeless-workspace` multi-repo workspace as a public
       `ai-runner`, fill in `mani.yaml`, stub the Cargo workspace inside
       `codeless/`, and land `CLAUDE.md` — leaving Phase 1 ready to start.
 Started: 2026-05-12
-Last tick: 2026-05-12 09:55 (Tick E)
-Current stage: 8 / 12
+Last tick: 2026-05-12 10:23 (Tick G)
+Current stage: 12 / 12
 
 Workspace root: /home/user/code/rust/codeless-workspace
 mani binary:    ./bin/mani  (bundled, statically linked — use this, not
@@ -156,7 +156,22 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
         JOB-LOOP-KICKOFF, MANI, sessions, and (forward reference)
         codeless/CODELESS.md.
 
-- [ ] 8. [M] Inside `codeless/`, stand up the Cargo workspace at the ← next
+- [x] 8. [M] Cargo workspace stood up inside `codeless/`. Workspace
+        `Cargo.toml` with resolver=2, all 8 member crates listed,
+        workspace.package metadata, workspace.lints (clippy=warn,
+        unsafe_code=forbid). Eight crates created with one-comment
+        bodies pointing at SCOPE.md crate-table rows:
+        codeless-types, codeless-rpc, codeless-runtime,
+        codeless-adapters-host, codeless-server (bin),
+        codeless-client, codeless-cli (bin: `codeless`),
+        codeless-tauri-desktop (bin, NO tauri dep yet — Phase 5).
+        `cargo check --workspace` exits 0.
+        **Order correction**: stage 9 (inner `.gitignore`) landed
+        BEFORE the commit because the first commit attempt swept in
+        the entire `target/` directory. `git reset --soft HEAD~1` +
+        unstage + write `.gitignore` first + re-stage just our files
+        recovered cleanly. Lesson for future loops: `.gitignore` is
+        always a prerequisite for any cargo/npm-producing stage.
         repo root. Outer `Cargo.toml`:
         ```toml
         [workspace]
@@ -183,29 +198,28 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
         `./bin/mani --config mani.yaml run push --projects codeless`.
         (Do NOT merge to `master`; PR comes after this loop.)
 
-- [ ] 9. [S] Inside `codeless/`, add a `.gitignore` covering `target/`,
-        `*.db`, `worktrees/`, `.env`, OS junk. (Distinct from the
-        workspace `.gitignore` — different repo, different concerns.)
-        Commit inside `codeless/`, push via mani.
+- [x] 9. [S] Inner `.gitignore` landed (folded into stage 8's commit
+        per the order correction above). Covers `target/`, `*.db*`,
+        `worktrees/`, `.env`, `auth.toml`, `secrets.toml`,
+        `node_modules/`, audit logs, IDE/OS junk. `Cargo.lock` is
+        tracked (workspace has binary crates).
 
-- [ ] 10. [S] Inside `codeless/`, create an empty-ish `CODELESS.md` at
-        the repo root: short README-style preamble pointing at the
-        workspace-level `DOCS/SCOPE.md`, `DOCS/JOB-LOOP.md`, `CLAUDE.md`
-        (note the relative path: `../DOCS/SCOPE.md` from inside the
-        inner repo). Commit + push.
+- [x] 10. [S] `codeless/CODELESS.md` created. Points back at the
+        workspace docs via `../`, captures durable project facts (one
+        entry so far: 2026-05-12 bootstrap).
 
-- [ ] 11. [S] Patch up internal references in the moved DOCS:
-        `DOCS/JOB-LOOP.md` and `DOCS/JOB-LOOP-KICKOFF.template.md`
-        currently say things like "paste into a session pointed at
-        `/home/user/code/rust/codeless`" — update to point at
-        `/home/user/code/rust/codeless-workspace` (for the loop docs
-        themselves) or at `codeless-workspace/codeless` (when the
-        loop's actual cargo work happens inside the inner repo).
-        Also fix the mani commands: `./bin/mani --config mani.yaml run
-        commit --projects codeless` (bundled binary, explicit config).
-        Commit on workspace repo.
+- [x] 11. [S] Patched stale path refs in JOB-LOOP.md (2 occurrences)
+        and JOB-LOOP-KICKOFF.template.md (1 occurrence) from
+        `/home/user/code/rust/codeless` → `.../codeless-workspace`.
+        Updated 6 mani commands in JOB-LOOP.md, 4 in
+        JOB-LOOP-KICKOFF.template.md, and 1 in CLAUDE.md from
+        bare `mani run X --projects codeless` →
+        `./bin/mani --config mani.yaml run X --projects codeless`.
+        Also corrected the `MSG=` form from shell-prefix to mani's
+        positional `KEY=value`-after-task-name (discovered during
+        Tick F when shell-prefix didn't pass through).
 
-- [ ] 12. [S] Final verify pass:
+- [ ] 12. [S] Final verify pass:                                      ← next
           - `git -C /home/user/code/rust/codeless-workspace status` clean,
             ahead-by-0 on `master`.
           - `git -C codeless status` clean, branch
@@ -272,6 +286,21 @@ Expected total: ~8 ticks. If it stretches past 12, halt and reassess.
   `NubeDev / ap@nube-io.com`. Seed commit landed (`init: codeless-
   workspace seed (DOCS, vendored mani binary, vendored ai-runner,
   bootstrap session doc)`).
+- **Tick G (2026-05-12 10:23)** — stages 10 + 11 done. Inner
+  `CODELESS.md` written. Loop docs (JOB-LOOP.md, JOB-LOOP-KICKOFF.
+  template.md) updated for the new workspace path. Mani commands
+  switched to bundled-binary form (`./bin/mani --config mani.yaml`).
+  Mani env-var form corrected to `KEY=value` after the task name.
+
+- **Tick F (2026-05-12 10:10)** — stages 8 + 9 done. First commit on
+  the inner codeless repo's `feat/bootstrap-cargo-workspace` branch
+  (commit `ebd18a5`). Required a recovery: initial mani-driven
+  commit swept in `target/` because the inner `.gitignore` (stage 9)
+  hadn't landed first. Recovered via `git reset --soft HEAD~1`,
+  wrote `.gitignore`, re-ran the commit. Lesson recorded above.
+  mani env-var syntax for tasks is `mani run <task> KEY=value` (not
+  `KEY=value mani run <task>` as the task `env:` mapping suggests).
+
 - **Tick E (2026-05-12 09:55)** — stage 7 done. CLAUDE.md is the
   agent-facing rules contract; SCOPE.md remains the source of truth
   for design decisions.

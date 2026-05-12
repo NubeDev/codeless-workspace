@@ -1,7 +1,7 @@
 # JOB-LOOP kickoff prompt — reusable template (Codeless)
 
 Fill in the bracketed bits and paste the fenced block below into a fresh
-Claude Code session pointed at `/home/user/code/rust/codeless`. Spec:
+Claude Code session pointed at `/home/user/code/rust/codeless-workspace`. Spec:
 [JOB-LOOP.md](./JOB-LOOP.md). Project scope: [SCOPE.md](./SCOPE.md).
 
 Quick checklist before pasting:
@@ -70,8 +70,8 @@ Procedure each tick:
       update the status file (check box, move ← next, bump
       Last tick + Current stage, Notes line if non-obvious) ->
       commit AND push via mani:
-        MSG='stage N: <title>' mani run commit --projects codeless
-        mani run push --projects codeless
+        ./bin/mani --config mani.yaml run commit --projects codeless MSG='stage N: <title>'
+        ./bin/mani --config mani.yaml run push --projects codeless
       Push is required per stage, not just at end of tick.
   - If all stages [x] -> report DONE, do NOT reschedule.
   - Else: SCHEDULE THE NEXT TICK. Call CronCreate with
@@ -151,8 +151,8 @@ Procedure each tick:
       update the status file (check box, move ← next, bump
       Last tick + Current stage, Notes line if non-obvious) ->
       commit AND push via mani:
-        MSG='stage N: <title>' mani run commit --projects codeless
-        mani run push --projects codeless
+        ./bin/mani --config mani.yaml run commit --projects codeless MSG='stage N: <title>'
+        ./bin/mani --config mani.yaml run push --projects codeless
       Push is required per stage, not just at end of tick.
   - If all stages [x] -> report DONE, do NOT reschedule.
   - Else: SCHEDULE THE NEXT TICK. Call CronCreate with

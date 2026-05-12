@@ -145,10 +145,11 @@ load-bearing parts:
    if all stages are `[x]`, or follow "If you cannot schedule"). A tick
    that exits silently is a bug.
 2. **Commit AND push every stage via mani** — never raw git from inside
-   a tick. Use:
+   a tick. The mani env-var form is `KEY=value` *as a positional after
+   the task name*, not a shell prefix:
    ```bash
-   MSG='stage N: <title>' \
-     ./bin/mani --config mani.yaml run commit --projects codeless
+   ./bin/mani --config mani.yaml run commit --projects codeless \
+     MSG='stage N: <title>'
    ./bin/mani --config mani.yaml run push --projects codeless
    ```
 3. **One logical batch per tick**, sized by complexity tags (`S` / `M` /

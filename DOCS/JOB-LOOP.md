@@ -134,7 +134,7 @@ same file.
 >    optional and not "later". A tick that ends with unpushed commits
 >    means the next tick (or the next agent, after `/clear` or a fresh
 >    session) sees stale remote state and can clobber or duplicate work.
->    `mani run commit --projects codeless` then `mani run push --projects
+>    `./bin/mani --config mani.yaml run commit --projects codeless` then `mani run push --projects
 >    codeless` — both, every tick, no exceptions. If push fails, mark
 >    the stage `[!]` and halt. Never `--force`, never `--no-verify`.
 > 6. ⛔ **CODE COMMENTS ARE LOAD-BEARING — WRITE THEM CAREFULLY.**
@@ -253,14 +253,15 @@ Each wake-up runs this procedure end-to-end. No skipping steps.
    append a Notes line if anything non-obvious was decided.
 
    3e. **Commit via mani** (one commit covers the code change + status
-   file update):
+   file update). Note the mani env-var form: `KEY=value` is a positional
+   argument *after* the task name, not a shell prefix:
    ```sh
-   MSG='stage N: <stage title>' \
-     mani run commit --projects codeless
+   ./bin/mani --config mani.yaml run commit --projects codeless \
+     MSG='stage N: <stage title>'
    ```
    3f. **Push via mani — required, every stage:**
    ```sh
-   mani run push --projects codeless
+   ./bin/mani --config mani.yaml run push --projects codeless
    ```
    If push fails (auth, non-fast-forward, hook reject) → mark stage `[!]`,
    write reason, halt. Do NOT re-attempt with `--force`.
@@ -300,8 +301,8 @@ Why this matters specifically for JOB-LOOP:
 
 At the end of every tick, before calling `CronCreate` / reporting `DONE`:
 
-1. `mani run commit --projects codeless` — exits 0.
-2. `mani run push --projects codeless` — exits 0.
+1. `./bin/mani --config mani.yaml run commit --projects codeless` — exits 0.
+2. `./bin/mani --config mani.yaml run push --projects codeless` — exits 0.
 3. `git status` clean, `git log @{upstream}..HEAD` empty (nothing ahead).
 
 If any of those fail, the stage becomes `[!]`, you halt, and you tell the
@@ -383,7 +384,7 @@ present, returns an error, you've hit the 50-task limit, etc.), you **MUST**:
      "tool not available in this session", etc.).
    - **How they should re-kick the loop** — usually:
      ```
-     Continue JOB-LOOP per DOCS/JOB-LOOP.md in /home/user/code/rust/codeless;
+     Continue JOB-LOOP per DOCS/JOB-LOOP.md in /home/user/code/rust/codeless-workspace;
      status file DOCS/sessions/<file> is current.
      ```
 4. Exit.
@@ -503,7 +504,7 @@ current task, delete it.
 
 ## Kickoff prompt (template)
 
-Paste into a fresh Claude Code session pointed at `/home/user/code/rust/codeless`.
+Paste into a fresh Claude Code session pointed at `/home/user/code/rust/codeless-workspace`.
 **The same text becomes the `prompt` argument of every `CronCreate` call**
 — each tick re-injects this verbatim into its scheduled successor. The
 fully-fleshed-out version with bracketed slots lives in
