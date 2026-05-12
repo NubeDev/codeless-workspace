@@ -39,8 +39,8 @@ Goal: Adopt the vendored `ai-runner` crate, run real coding runners
       so every job runs in its own checkout, and add cost tracking
       with cap-driven cancellation.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stages 5+6)
-Current stage: 7 / 7
+Last tick: 2026-05-12 (stage 7 — DONE)
+Current stage: DONE (7 / 7)
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2b stacks on the same
@@ -82,7 +82,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
          it cancels the runner via `tokio_util::sync::CancellationToken`
          and emits `job-stopped { reason: cost-cap }`. Wall-clock cap
          lands here too via the same cancellation channel.
-- [ ] 7. [S] Phase 2b wrap-up: CODELESS.md refresh, README quickstart  ← next
+- [x] 7. [S] Phase 2b wrap-up: CODELESS.md refresh, README quickstart
          showing a non-mock runner invocation, three verify gates
          green, branch ready for PR (Phase 2a + 2b stacked).
 
@@ -95,6 +95,21 @@ Likely batching (planning hint, not a contract):
 - Tick 6: stage 7 (S) — wrap-up + DONE.
 
 ## Notes
+- Stage 7: CODELESS.md "What this repo is, today" refreshed to call
+  out Phase 2b deliverables: `ClaudeRunnerAdapter` +
+  `AnthropicRunnerAdapter` in `codeless-runtime`, `ai_runner_bridge`
+  in `codeless-adapters-host`, worktree threading and cap watcher in
+  `drive_job`, cost rollup in `EventBus::publish`. Durable-facts log
+  gained a Phase 2b entry summarising the seven stages and pointing
+  at the test surface (fake `claude` binary, `wiremock` SSE,
+  cap=0 unlimited invariant). README quickstart grew a "Driving a
+  real runner from Rust" section with a `ClaudeRunnerAdapter` Rust
+  snippet — non-mock runners are reachable via the library today;
+  the CLI still defaults to `MockRunner` and gets `--runner claude`
+  wiring in Phase 2c. Three gates green at wrap-up:
+  `cargo test --workspace`, `cargo clippy -D warnings`,
+  `cargo fmt --check`. Branch `feat/phase-2a-persistence` is ready
+  for a combined Phase 2a + 2b PR.
 - Stages 5+6 (batched): cost rollup + cap cancellation land together
   because the cap watcher reads the rolled-up totals. `EventBus::publish`
   grew a `roll_up_cost` side effect: any `AiMessageComplete` now adds
