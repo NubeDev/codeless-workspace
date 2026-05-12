@@ -21,8 +21,8 @@ Goal in one sentence:
   can refine (and optionally have an AI scope) before submitting.
 
 Started: 2026-05-12
-Last tick: 2026-05-12 (stages 3+4+5 landed)
-Current stage: 6 / 13
+Last tick: 2026-05-12 (stage 6 blocked, [!])
+Current stage: 6 / 13 ← blocker; see Blockers section
 
 Repo:        codeless
 Branch:      master
@@ -109,7 +109,7 @@ job either runs to completion or hits the review gate.
        in a terminal"; "Ready"). Future Codex / Copilot rows live
        in the same block when those runners arrive.
 
-- [ ] 6. [M] End-to-end exercise: from a fresh git repo on the              ← next
+- [!] 6. [M] End-to-end exercise: from a fresh git repo on the              ← BLOCKED
        host (`cd /tmp && git init demo-target && cd demo-target &&
        echo "# demo" > README.md && git add -A && git commit -m
        init`), run:
@@ -225,9 +225,45 @@ a real authoring surface that grows with the job. The user can:
   scaffolds. A follow-up loop wires it.
 
 ## Blockers
-(none)
+
+- **stage 6**: Claude Code runs in headless mode but the wrapper feeds
+  it tool calls in interactive-permission mode. The smoke run shows
+  three `tool-call` events (2x Write, 1x Bash) followed by an
+  `ai-token` saying _"I need permission to create the file and run
+  the git commands"_; no commit lands on the job branch. claude-wrapper
+  exposes `QueryCommand::dangerously_skip_permissions()` and
+  `PermissionMode::BypassPermissions`, which is what headless server
+  use needs. Neither is wired through `ai-runner::CliCfg`, and
+  CLAUDE.md treats `ai-runner/` as read-only (updates flow from
+  rubix-agent upstream). Unblocks: either upstream a new
+  `permission_mode` field on `CliCfg` and surface it on
+  `ClaudeRunnerAdapter`, or take a workspace decision to vendor the
+  flag locally. Until then, the dogfood proof cannot pass with a real
+  claude binary. The smoke script
+  `scripts/smoke-claude-demo.sh` survives as the regression net for
+  every step *up to* the tool-permission gate.
 
 ## Tick log
+- stage 6: HALT [!]. Built `scripts/smoke-claude-demo.sh` that boots
+  serve --enable-claude against a fresh /tmp/demo-target, asserts
+  /server/info reports the implicit `<fs-root>/.codeless/worktrees`
+  default and the claude probe, submits a job, polls get_job to
+  terminal, then verifies the result against the job branch in the
+  source repo (worktrees are reaped post-completion, so checking the
+  worktree dir directly is wrong — the branch is the durable proof).
+  Two rough edges surfaced:
+    1. `WorktreeManager::create` always names the branch
+       `codeless/job-<job_id>`, ignoring `SubmitJobArgs.branch`. The
+       user-supplied field is effectively vestigial; the UI should
+       either stop offering it or the manager should honour it.
+       Tracking as a follow-up to stage 4.
+    2. Headless claude needs `dangerously_skip_permissions` /
+       `PermissionMode::BypassPermissions` from claude-wrapper. The
+       smoke run captured three `tool-call` events (Write, Bash,
+       Write) followed by claude asking _"I need permission to
+       create the file..."_; no commit. ai-runner's CliCfg has no
+       knob for this, and CLAUDE.md forbids editing ai-runner — see
+       Blockers.
 - stages 3+4+5: implicit --worktree-root default is
   <fs-root>/.codeless/worktrees when --fs-root is set; codeless repo
   gitignore now excludes `.codeless/worktrees/` (templates remain
