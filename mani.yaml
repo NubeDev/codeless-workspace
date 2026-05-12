@@ -1,0 +1,80 @@
+# Codeless multi-repo workspace.
+#
+# This file describes the repos colocated under codeless-workspace/ and
+# the standard tasks that JOB-LOOP ticks invoke. See DOCS/MANI.md for
+# the workflow patterns; DOCS/SCOPE.md for what each repo will become.
+#
+# Use the bundled mani binary: ./bin/mani --config mani.yaml run <task>
+# Plain `mani` (system PATH) may be a different build.
+
+projects:
+  codeless:
+    path: codeless
+    url: https://github.com/NubeDev/codeless
+    desc: Codeless core — Rust workspace, runtime, server, CLI, UI
+    tags: [rust, active]
+
+  ai-runner:
+    path: ai-runner
+    desc: |
+      Vendored from rubix-agent/crates/ai-runner. Source of truth lives
+      at /home/user/code/rubix-workspace/rubix-agent/crates/ai-runner.
+      Updates are manual re-vendoring. Adoption shape (vendor / workspace
+      dep / fork) is an SCOPE.md open question; vendoring is the current
+      working answer.
+    tags: [rust, vendored, reference]
+
+tasks:
+  status:
+    desc: Compact git status across all repos
+    cmd: git status --short --branch
+
+  fetch:
+    desc: Fetch all remotes; prune stale refs
+    cmd: git fetch --all --prune
+
+  pull:
+    desc: Pull current branch from upstream (fast-forward only)
+    cmd: git pull --ff-only
+
+  branch:
+    desc: Show current branch + tracking info per repo
+    cmd: |
+      echo "branch: $(git branch --show-current)"
+      git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null \
+        | awk '{print "ahead/behind upstream: " $1 "/" $2}' \
+        || echo "no upstream"
+
+  diff:
+    desc: Compact diff of uncommitted changes
+    cmd: git diff --stat
+
+  commit:
+    desc: |
+      Stage all + commit with $MSG. JOB-LOOP ticks set MSG explicitly.
+      Refuses to commit an empty/unset MSG.
+    env:
+      MSG: ""
+    cmd: |
+      if [ -z "$MSG" ]; then
+        echo "error: MSG env var is required (e.g. MSG='stage N: title' mani run commit ...)" >&2
+        exit 2
+      fi
+      git add -A
+      if git diff --cached --quiet; then
+        echo "nothing to commit"
+        exit 0
+      fi
+      git commit -m "$MSG"
+
+  push:
+    desc: |
+      Push current branch with --set-upstream if needed. Never --force,
+      never --no-verify (those are JOB-LOOP guardrail violations).
+    cmd: |
+      branch=$(git branch --show-current)
+      if git rev-parse --abbrev-ref --symbolic-full-name @{upstream} >/dev/null 2>&1; then
+        git push
+      else
+        git push --set-upstream origin "$branch"
+      fi

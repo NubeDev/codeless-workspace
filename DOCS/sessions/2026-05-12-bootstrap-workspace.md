@@ -42,8 +42,8 @@ Goal: Stand up the `codeless-workspace` multi-repo workspace as a public
       `ai-runner`, fill in `mani.yaml`, stub the Cargo workspace inside
       `codeless/`, and land `CLAUDE.md` — leaving Phase 1 ready to start.
 Started: 2026-05-12
-Last tick: 2026-05-12 09:38 (Tick C)
-Current stage: 6 / 12
+Last tick: 2026-05-12 09:46 (Tick D)
+Current stage: 7 / 12
 
 Workspace root: /home/user/code/rust/codeless-workspace
 mani binary:    ./bin/mani  (bundled, statically linked — use this, not
@@ -136,20 +136,18 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
         `check` (config validation). Stage 6 takes this into account
         when writing `mani.yaml`.
 
-- [ ] 6. [M] Fill in `codeless-workspace/mani.yaml`. Projects:        ← next
-          - `codeless`   (path: `codeless`, tag: `rust`, `active`)
-          - `ai-runner`  (path: `ai-runner`, tag: `rust`, `vendored`,
-                          `reference`)
-        Tasks: at minimum, the standard helpers from
-        [`DOCS/MANI.md`](../MANI.md) — `status`, `fetch`, `commit`,
-        `push`. (If `DOCS/MANI.md` is empty, write a minimal version
-        first as a sub-step of this stage; lift the structure from the
-        block-flutter-workspace MANI.md the user pointed at.)
-        Verify: `./bin/mani --config mani.yaml run status --all` exits
-        0 and lists both projects. Commit on the workspace repo:
-        `chore(mani): wire up codeless + ai-runner projects`.
+- [x] 6. [M] `mani.yaml` and `DOCS/MANI.md` written. Projects:
+        `codeless` (path `codeless`, tags `rust active`) and
+        `ai-runner` (path `ai-runner`, tags `rust vendored reference`).
+        Tasks: `status`, `fetch`, `pull`, `branch`, `diff`, `commit`,
+        `push`. The `commit` task refuses to run without `MSG` env var.
+        Verified: `./bin/mani --config mani.yaml check` reports valid;
+        `run status --all` lists both projects.
+        Footgun discovered + documented: vendored `ai-runner/` has no
+        `.git`, so cross-repo git walks the parent chain and reports
+        workspace state. Workaround: `--projects codeless` for ticks.
 
-- [ ] 7. [M] Create `codeless-workspace/CLAUDE.md` at the workspace
+- [ ] 7. [M] Create `codeless-workspace/CLAUDE.md` at the workspace ← next
         root (not inside `codeless/`). Capture the rules an agent must
         follow when touching code anywhere in this workspace, distilled
         from `DOCS/SCOPE.md`:
@@ -284,6 +282,10 @@ Expected total: ~8 ticks. If it stretches past 12, halt and reassess.
   `NubeDev / ap@nube-io.com`. Seed commit landed (`init: codeless-
   workspace seed (DOCS, vendored mani binary, vendored ai-runner,
   bootstrap session doc)`).
+- **Tick D (2026-05-12 09:46)** — stage 6 done. Now using
+  `./bin/mani --config mani.yaml run <task> --projects codeless` for
+  all subsequent commits.
+
 - **Tick C (2026-05-12 09:38)** — stages 4 + 5 done. Workspace
   pushed to `NubeDev/codeless-workspace` (public). The bundled mani
   binary is a custom build (commands include `release`, `issue`,
