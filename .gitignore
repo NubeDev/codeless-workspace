@@ -1,0 +1,39 @@
+# Workspace-level ignores. Per-repo ignores live inside each repo
+# (e.g. codeless/.gitignore). Do NOT add `bin/` here — the bundled
+# mani binary is intentionally tracked. Do NOT add `codeless/` here —
+# it is moved in as a tracked subdirectory (independent git repo,
+# but the outer workspace tracks the path).
+
+# Build outputs
+target/
+node_modules/
+dist/
+build/
+
+# SQLite databases produced by codeless at runtime
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Worktree dirs created by the codeless runtime
+worktrees/
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+audit.log*
