@@ -28,7 +28,11 @@ codeless-workspace/        ← this repo (NubeDev/codeless-workspace, public)
 ├── DOCS/                  ← SCOPE, JOB-LOOP, MANI, session files
 ├── bin/mani               ← bundled mani binary; do not replace casually
 ├── mani.yaml              ← workspace task config
-├── ai-runner/             ← VENDORED from rubix-agent, no .git of its own
+├── ai-runner.PATCHES.md   ← log of every codeless-side edit to ai-runner/
+├── ai-runner/             ← VENDORED from rubix-agent, no .git of its own;
+│                            patched in-place by this workspace — every patch
+│                            lands a row in ai-runner.PATCHES.md and a
+│                            `// codeless-patch-NNN` marker in source
 └── codeless/              ← INNER REPO (NubeDev/codeless), independent git
                              — colocated, NOT a submodule. The workspace
                              .gitignore excludes it.
