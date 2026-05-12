@@ -50,8 +50,8 @@ Goal: Land Phase 1 — types, in-process RPC, specta codegen, initial sqlx
       codeless/CLAUDE.md, secrets CLI, worktree manager, and a green
       end-to-end `codeless run --once` against a runner — all pushed.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 5 — stages 6+7)
-Current stage: 8 / 11
+Last tick: 2026-05-12 (tick 6 — stages 8+9)
+Current stage: 9 / 11
 
 Repo:        codeless
 Branch:      feat/bootstrap-cargo-workspace
@@ -70,8 +70,8 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 5. [M] codeless-runtime state-machine skeleton + MockRunner test harness
 - [x] 6. [S] tracing-subscriber JSON-to-stdout baseline
 - [x] 7. [S] codeless/CLAUDE.md at repo root capturing the rules from SCOPE.md
-- [ ] 8. [S] codeless secrets set/get/rm/list against chmod 600 secrets.toml  ← next
-- [ ] 9. [S] Worktree manager: git worktree add/remove + reaper-on-startup
+- [x] 8. [S] codeless secrets set/get/rm/list against chmod 600 secrets.toml
+- [ ] 9. [S] Worktree manager: git worktree add/remove + reaper-on-startup  ← next
 - [ ] 10. [M] codeless run --once --repo <r> "<prompt>" end-to-end against
          a chosen runner, streaming events to stdout
 - [ ] 11. [S] Phase 1 wrap-up: README pointer, CODELESS.md memory update,
@@ -92,6 +92,24 @@ Note: bootstrap stage "Cargo workspace + crate stubs" is already complete
 Phase 1 — see commit ebd18a5.
 
 ## Notes
+- Stage 8: `SecretStore` lives in `codeless-adapters-host::secrets`,
+  backed by a TOML file (single flat table; `BTreeMap` for stable
+  ordering on disk and in `list`). Save is atomic via a sibling `.tmp`
+  file with `OpenOptionsExt::mode(0o600)` on Unix so the value is
+  never world-readable mid-rename. `set` validates keys
+  (no empties, no whitespace or `=`) to keep the on-disk TOML grammar
+  unambiguous. The CLI binary is now wired with `clap` derive: subcommands
+  `codeless secrets {set,get,rm,list}` + a global `--secrets-file` (also
+  `CODELESS_SECRETS_FILE` env). `get` refuses without `--reveal` so an
+  accidental `codeless secrets get FOO` does not splash a key on the
+  terminal. `set` reads the value from positional, `--from-env NAME`,
+  or stdin (rejected if stdin is a TTY); trailing `\n`/`\r\n` from a
+  shell pipe are stripped. Tests in
+  `codeless-adapters-host/tests/secrets.rs` cover round-trip,
+  permissions, key validation, and unknown-key removal; the CLI tests
+  live in `codeless-cli/tests/secrets_cli.rs` via `assert_cmd` against
+  the actual binary. clap `env` feature was needed for `#[arg(env=…)]`
+  to compile.
 - Stage 7: inner-repo `codeless/CLAUDE.md` is now the per-repo agent
   contract — distilled from the workspace `CLAUDE.md` plus the
   SCOPE.md crate-layering rules. Designed to be read first by any
