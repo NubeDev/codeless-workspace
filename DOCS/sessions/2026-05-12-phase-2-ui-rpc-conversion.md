@@ -28,8 +28,8 @@ Goal: Drive `@tauri-apps/*` import count from 13 → ≤3 (the two
       10 blocked UI files to call `useRpc()`. Verified end-to-end
       against `MockRpcClient` at `/?mock=1`.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stages 1–3 — wire + method types green)
-Current stage: 4 ← next
+Last tick: 2026-05-12 (stage 4a — MockRpcClient FS + secrets impl)
+Current stage: 5 ← next (stage 4b vitest deferred)
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2 UI work stacks on
@@ -57,10 +57,19 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
           (read_file, write_file, create_file, create_dir,
           read_dir, search, glob, move, delete, cwd).
 - [x] 3.  [S] `methods.ts` — `secrets_{set,get,list,rm}` types.
-- [ ] 4.  [M] `MockRpcClient` — in-memory FS rooted at
-          `/home/user/mock-workspace`, in-memory secrets map,
-          ~80ms latency, `not_found`/`permission_denied`/`conflict`
-          error kinds, vitest happy-path spec.
+- [x] 4a. [M] `MockRpcClient` — in-memory FS rooted at
+          `/home/user/mock-workspace` (seed fixture: README.md,
+          src/index.ts, docs/notes.md), in-memory secrets map,
+          ~80ms latency, `not_found` / `conflict` /
+          `invalid_argument` error kinds. (Note: wire error type
+          has no `permission_denied` variant — using
+          `invalid_argument` for type-mismatch cases; no
+          permission-denied path in mock since there is no real
+          permission model.)
+- [ ] 4b. [S] Vitest bootstrap + happy-path spec for FS read/
+          write/list/delete + secrets set/get/list/rm. Deferred:
+          UI package has no vitest dep yet; bootstrap is its own
+          stage. Stages 5–12 verify against `/?mock=1` instead.
 - [ ] 5.  [S] Convert `modules/editor/lib/useDocument.ts`
           (fs_read_file, fs_write_file). Verify via `/?mock=1`.
 - [ ] 6.  [S] Convert `modules/editor/NewEditorDialog.tsx`
