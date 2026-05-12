@@ -4,11 +4,15 @@
 
 Codeless is a staged, reviewable AI coding job runner that manages **many concurrent jobs across many repos**. It runs as a **headless Rust core service** with three peer control surfaces — a browser UI, a CLI, and an **MCP server**. The UI is the primary surface for humans; the CLI and MCP server are the primary surfaces for everything else (scripts, CI, and AI agents such as Claude Code / Codex driving Codeless without ever opening a browser). It is forked from [`crynta/terax-ai`](https://github.com/crynta/terax-ai), but only the **UI layer** of Terax is reused. The AI runtime is rewritten in Rust so it can serve the browser remotely from a box you own.
 
-## Why this scope (the key constraint)
+## Why this scope (the key constraints)
 
-The product must let one person drive **many concurrent jobs across many repos from a browser**, against a core running on a remote machine (your home box, VPS, or Mac mini). That single requirement drives every architectural decision below.
+Two constraints drive every architectural decision below.
 
-In Terax today the AI loop runs *inside the webview* using the Vercel AI SDK in TypeScript, with each user's API key going from the browser/webview straight to OpenAI/Anthropic/etc. That model is fine for a single-user desktop tool with one job at a time. It does not work for what we want:
+**Constraint 1 — many concurrent jobs across many repos from a browser.** One person, a core running on a remote machine (home box, VPS, Mac mini), the browser as a thin view. This rules out a tab-resident AI loop and forces the runtime into the Rust core.
+
+**Constraint 2 — a coder loop must run unsupervised for 24 hours.** A developer starts a long job before bed and wakes up to commits on a branch, a status file showing what landed and what halted, and a few `[?]` review gates at the points where the loop decided it needed a human. This is the difference between "agent that codes" and "agent that codes for as long as it takes". It forces *fresh session per tick* — every tick is a disposable agent that re-reads the status file from disk and the git history from the remote, then exits. Anything in-memory between ticks is dead by morning. See [`LOOP-CODER.md`](./LOOP-CODER.md) for the full design intent, what 24-hour operation requires, and how this compares to the long-lived-orchestrator model that sibling projects use.
+
+Constraint 1 alone is enough to rule out the inherited Terax model. In Terax today the AI loop runs *inside the webview* using the Vercel AI SDK in TypeScript, with each user's API key going from the browser/webview straight to OpenAI/Anthropic/etc. That model is fine for a single-user desktop tool with one job at a time. It does not work for what we want:
 
 - The browser tab can close — long-running jobs can't live there.
 - Many jobs running at once need a scheduler, queue, and shared event bus — none of that fits in a tab.
@@ -477,6 +481,14 @@ The job runtime is a staged state machine, not a real-time simulation. We use:
 We explicitly **do not** adopt an ECS such as [Bevy](https://github.com/bevyengine/bevy), [hecs](https://github.com/Ralith/hecs), or [Flax](https://github.com/ten3roberts/flax). ECS is a worldview built for real-time simulation; importing it for a staged-job state machine is overkill and would pull contributors into a paradigm that doesn't match the problem. If we later need DAG-style parallel task fan-out, the right move is a topological sort + worker pool, not an ECS.
 
 ## Coding loop — CLI wrappers OR direct APIs, user picks per job
+
+> **Design intent and the 24-hour unsupervised run.** This section
+> covers *which runner* a job uses (CLI vs direct API). The loop
+> itself — the staged-batch contract, fresh-session-per-tick model,
+> what unsupervised operation requires, and what we keep / borrow /
+> reject relative to sibling projects — lives in
+> [`LOOP-CODER.md`](./LOOP-CODER.md). Operational rules each tick
+> follows live in [`JOB-LOOP.md`](./JOB-LOOP.md).
 
 **Rule:** The coding loop is whatever the user configures for the job. Both modes are first-class:
 
