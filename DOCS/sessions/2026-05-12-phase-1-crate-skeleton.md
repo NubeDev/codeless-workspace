@@ -50,8 +50,8 @@ Goal: Land Phase 1 — types, in-process RPC, specta codegen, initial sqlx
       codeless/CLAUDE.md, secrets CLI, worktree manager, and a green
       end-to-end `codeless run --once` against a runner — all pushed.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 2 — stage 2)
-Current stage: 3 / 11
+Last tick: 2026-05-12 (tick 3 — stages 3+4)
+Current stage: 5 / 11
 
 Repo:        codeless
 Branch:      feat/bootstrap-cargo-workspace
@@ -65,9 +65,9 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 
 - [x] 1. [S] codeless-types: Repo/Job/Stage/Task/Event/Review structs (serde)
 - [x] 2. [M] codeless-rpc trait + in-process implementation
-- [ ] 3. [S] specta wire-type generation + snapshot test  ← next
-- [ ] 4. [S] sqlx initial migration matching SCOPE.md Appendix A
-- [ ] 5. [M] codeless-runtime state-machine skeleton + MockRunner test harness
+- [x] 3. [S] specta wire-type generation + snapshot test
+- [x] 4. [S] sqlx initial migration matching SCOPE.md Appendix A
+- [ ] 5. [M] codeless-runtime state-machine skeleton + MockRunner test harness  ← next
 - [ ] 6. [S] tracing-subscriber JSON-to-stdout baseline
 - [ ] 7. [S] codeless/CLAUDE.md at repo root capturing the rules from SCOPE.md
 - [ ] 8. [S] codeless secrets set/get/rm/list against chmod 600 secrets.toml
@@ -99,6 +99,31 @@ Phase 1 — see commit ebd18a5.
   CLAUDE.md at codeless-workspace root — the workspace one already
   exists from the bootstrap loop. SCOPE.md Phase 1 wants one at the
   inner-repo root too.
+- Stages 3+4: batched (both S, both wire/schema-adjacent per the
+  planning hint). Stage 3 lands `specta` + `specta-typescript` deps in
+  `codeless-types` and a single snapshot test
+  (`tests/wire.ts.snap`) that re-runs codegen against the checked-in
+  TS, with `SPECTA_UPDATE=1` to regenerate intentionally. Real footgun
+  discovered: `specta-serde 0.0.10` propagates `#[serde(rename_all =
+  "kebab-case")]` to *variant fields*, while serde itself only renames
+  the variant discriminant. That made the snapshot disagree with the
+  actual JSON wire output (`task-id` vs `task_id`). The `specta`
+  macro does **not** forward `rename_all_fields`, so the only way to
+  make codegen match serde is to drop container-level `rename_all`
+  on the `Event` enum and apply explicit `#[serde(rename = "...")]`
+  per variant. That's now the rule: any enum using `tag = "type"` with
+  kebab-case wire labels uses per-variant rename, not `rename_all`.
+  Wire-format choices recorded in the snapshot: BigInt → JS `number`
+  (every i64 we emit fits inside `Number.MAX_SAFE_INTEGER`), ULID
+  newtypes specta-mapped to `string`.
+  Stage 4 lands `sqlx 0.8` (features: `runtime-tokio + sqlite +
+  migrate`) and `migrations/0001_initial.sql` (verbatim Appendix A).
+  The `MIGRATOR` is `sqlx::migrate!("./migrations")` — content-hashed
+  at build time, forward-only. Tests apply the migrator to
+  `sqlite::memory:` and assert all 7 tables, key index names, every
+  column name for `repos` and `jobs`, that `tasks` carries
+  `depends_on/lease_*`, and that the `events.cursor` autoincrement
+  pk hands out 1, 2 in order.
 - Stage 2: `codeless-rpc` stays iOS/Android-safe — deps are
   `serde + async-trait + futures-core + thiserror` only. The
   in-process impl is in `codeless-runtime` (host-only), where tokio
