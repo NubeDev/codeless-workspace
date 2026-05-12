@@ -37,8 +37,8 @@ Goal: Replace `MemoryStore` with SQLite-backed persistence; persist
       scheduler in Phase 2b has a real queue to drive; prove
       resumability across a simulated core restart.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 1 — stage 1)
-Current stage: 2 / 9
+Last tick: 2026-05-12 (tick 2 — stage 2)
+Current stage: 3 / 9
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence
@@ -51,10 +51,10 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 
 - [x] 1. [S] `InProcessRpc::with_db(pool)` plumbing; keep `new()` as a
          `:memory:` shortcut for tests. Migrations applied on construction.
-- [ ] 2. [M] Repo + Job persistence: `SqliteStore` replaces `MemoryStore`  ← next
+- [x] 2. [M] Repo + Job persistence: `SqliteStore` replaces `MemoryStore`
          for repos and jobs (sqlx queries against the Appendix A tables).
          All existing in-process RPC tests stay green against the new store.
-- [ ] 3. [M] Event persistence + cursor allocation. `EventBus` writes
+- [ ] 3. [M] Event persistence + cursor allocation.  ← next `EventBus` writes
          to the `events` table first, then broadcasts; cursor comes
          from the autoincrement column, not an in-memory counter.
 - [ ] 4. [M] `subscribe(since)` replays from SQLite from `since+1`
@@ -82,6 +82,24 @@ Likely batching (planning hint, not a contract):
 - Tick 7: stage 9 (S).
 
 ## Notes
+- Stage 2: `MemoryStore` is gone; `SqliteStore` (`src/store.rs`) is now
+  the sole persistence path for `Repo` and `Job`. All eight methods
+  (`insert_repo`, `get_repo`, `remove_repo`, `list_repos`,
+  `insert_job`, `get_job`, `update_job`, `list_jobs`) are async +
+  fallible — `sqlx::Error` bubbles to callers; `InProcessRpc` maps
+  it to `RpcError::Internal` via a small `db_err` helper. Enum
+  encoding choice: status/stop-reason columns use explicit pattern
+  matches (`job_status_label`/`parse_job_status` etc.) rather than
+  serde_json round-trips on the enum value. The labels are wire-stable
+  per SCOPE.md Appendix A; an explicit match makes a future drift a
+  compile error rather than a silent string change. `git_auth` does
+  go through serde_json because its variants carry data; column is
+  TEXT NOT NULL by the migration. `parking_lot` stays (used by
+  `MockRunner` for the scripted-steps cell); `serde_json` was added
+  here. `rpc.store()` accessor now returns `&Arc<SqliteStore>`, so
+  callers that previously did `store.get_job(id)` synchronously now
+  `await` it. `driver.rs` updated accordingly. All 12 existing rpc /
+  driver tests pass against the new store; clippy + fmt clean.
 - Stage 1: `InProcessRpc::new()` and `InProcessRpc::with_db(pool)` are
   now async + fallible (`Result<Self, sqlx::Error>`). Both run the
   Appendix A migrator on construction so callers never have to
