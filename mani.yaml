@@ -78,3 +78,19 @@ tasks:
       else
         git push --set-upstream origin "$branch"
       fi
+
+  wire-ts-check:
+    desc: |
+      Regenerate the TypeScript wire contract from Rust and fail if the
+      committed copy drifts. Catches the case where someone edits
+      codeless-types or codeless-rpc but forgets to rerun the codegen,
+      which would leave the UI compiling against stale shapes.
+    cmd: |
+      cargo run --quiet -p codeless-rpc --example wire_ts >/dev/null
+      target=ui/codeless-ui/src/lib/rpc/generated/wire.ts
+      if ! git diff --quiet --exit-code -- "$target"; then
+        echo "error: $target drifted from the Rust source of truth." >&2
+        echo "Run 'cargo run -p codeless-rpc --example wire_ts' and commit the result." >&2
+        git --no-pager diff -- "$target" >&2
+        exit 1
+      fi

@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:01
-Current stage: 4 / 12
+Last tick: 2026-05-12 17:08
+Current stage: 4b / 12
 
 Repo:        codeless
 Branch:      master
@@ -85,11 +85,11 @@ Phase A — Specta codegen covers RPC methods (replaces hand-mirrored TS):
        `job_id`/`pending_only`, Rust has `status`), so swapping it
        cascades into call-site changes that don't fit a single tick.
        Tracked as stage 4b below.
-- [ ] 4. [S] CI snapshot check: a GitHub Actions step (or `mani` task)   ← next
-       that runs the wire-ts codegen and `git diff --exit-code` against
-       the committed generated file, so drift between Rust types and
-       UI types becomes a CI failure.
-- [ ] 4b. [M] Reconcile `methods.ts` hand-mirrored RPC arg/result
+- [x] 4. [S] Drift check landed as a `wire-ts-check` mani task in
+       `mani.yaml`: regenerates the TS, then `git diff --exit-code`
+       against the committed file. GitHub Actions wiring deferred
+       until a CI workflow exists in either repo.
+- [ ] 4b. [M] Reconcile `methods.ts` hand-mirrored RPC arg/result   ← next
        shapes with the codegen surface, starting with
        `ListReviewsArgs` (UI uses `job_id`/`pending_only`; Rust uses
        `stage_id`/`status`). Decide the canonical shape (Rust wins
@@ -164,6 +164,12 @@ Likely batching (planning hint, not a contract):
   workspaces (out of scope for this loop).
 
 ## Tick log
+- Tick 4 (2026-05-12 17:08): stage 4. Added `wire-ts-check` mani task.
+  Known mani-wrapper quirk: it does not propagate the inner script's
+  non-zero exit code to its own exit, so this task is suitable as a
+  developer/loop affordance but a future GHA step should invoke the
+  underlying `cargo run -p codeless-rpc --example wire_ts` and
+  `git diff --exit-code` directly to get a hard CI failure.
 - Tick 3 (2026-05-12 17:01): stage 3. `wire.ts` now re-exports the
   generated module for core types; fs/shell forward declarations kept
   alongside. Discovered a shape mismatch between UI's `ListReviewsArgs`
