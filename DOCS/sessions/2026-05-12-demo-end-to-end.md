@@ -26,8 +26,8 @@ Goal: A user with a fresh checkout can run two commands
       and watches it complete via SSE — all against the real
       `codeless-server`, no mocks.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:47
-Current stage: 6 / 8
+Last tick: 2026-05-12 17:50
+Current stage: 8 / 8
 
 Repo:        codeless
 Branch:      master
@@ -79,19 +79,17 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
        `Failed`. Real AI runners drive the same event variants, so
        the timeline renders identically for both.
 
-- [ ] 6. [S] DEMO-UI.md walkthrough at the workspace root: prereqs,
-       one-block server-start command, one-block UI-start command,
-       what the user should see at each step. Replaces the older
-       references in `codeless/README.md` with a single
-       authoritative quickstart that's tested against the real
-       end-to-end flow.
+- [x] 6. [S] `DEMO-UI.md` rewritten against the new flow:
+       `demo bootstrap`, `--fs-root`, expected timeline events, and
+       a troubleshooting block that names the failure modes the
+       demo path actually exhibits.
 
-- [ ] 7. [S] Smoke-test script: a tiny shell script (or a verify
-       task in mani.yaml) that boots `codeless serve` on an
-       ephemeral port, runs `codeless demo bootstrap`, hits
-       `/rpc/list_repos`, `/rpc/list_jobs`, `/rpc/fs_read_dir`, and
-       asserts the expected counts. Catches regressions in the demo
-       path without depending on a browser.
+- [x] 7. [S] `scripts/smoke-demo.sh` boots the server on
+       `127.0.0.1:7799`, seeds via bootstrap, polls `/rpc/list_jobs`
+       until terminal, asserts the demo repo exists and `fs_cwd`
+       returns a path. Honours `CODELESS_BIN` to skip the build for
+       quick reruns. Smoke-tested against the just-built binary —
+       PASS. Cleans up the tempdir + server PID via `trap`.
 
 - [ ] 8. [S] Cleanup pass: any compile/clippy warnings introduced
        during the loop, drift in `wire.ts.snap` not yet committed,
@@ -112,6 +110,9 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 (none)
 
 ## Tick log
+- Tick 6 (2026-05-12 17:50): stages 6 + 7. DEMO-UI.md replaced with
+  the post-bootstrap flow; `scripts/smoke-demo.sh` codifies the
+  end-to-end happy path and exits 0 on success. Both verified.
 - Tick 5 (2026-05-12 17:47): stage 5. Mock runner now scripts a
   visible token stream so the JobsDashboard timeline has content
   during a demo run. Smoke-tested with a tempdb, ephemeral port,
