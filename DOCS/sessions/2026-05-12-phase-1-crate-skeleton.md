@@ -50,8 +50,8 @@ Goal: Land Phase 1 — types, in-process RPC, specta codegen, initial sqlx
       codeless/CLAUDE.md, secrets CLI, worktree manager, and a green
       end-to-end `codeless run --once` against a runner — all pushed.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 3 — stages 3+4)
-Current stage: 5 / 11
+Last tick: 2026-05-12 (tick 4 — stage 5)
+Current stage: 6 / 11
 
 Repo:        codeless
 Branch:      feat/bootstrap-cargo-workspace
@@ -67,8 +67,8 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 2. [M] codeless-rpc trait + in-process implementation
 - [x] 3. [S] specta wire-type generation + snapshot test
 - [x] 4. [S] sqlx initial migration matching SCOPE.md Appendix A
-- [ ] 5. [M] codeless-runtime state-machine skeleton + MockRunner test harness  ← next
-- [ ] 6. [S] tracing-subscriber JSON-to-stdout baseline
+- [x] 5. [M] codeless-runtime state-machine skeleton + MockRunner test harness
+- [ ] 6. [S] tracing-subscriber JSON-to-stdout baseline  ← next
 - [ ] 7. [S] codeless/CLAUDE.md at repo root capturing the rules from SCOPE.md
 - [ ] 8. [S] codeless secrets set/get/rm/list against chmod 600 secrets.toml
 - [ ] 9. [S] Worktree manager: git worktree add/remove + reaper-on-startup
@@ -92,6 +92,25 @@ Note: bootstrap stage "Cargo workspace + crate stubs" is already complete
 Phase 1 — see commit ebd18a5.
 
 ## Notes
+- Stage 5: introduces three new modules in `codeless-runtime`:
+  `state_machine.rs` (pure transition guards for Job/Stage/Task —
+  returns `TransitionError` rather than panicking so callers can map
+  to `RpcError::Conflict`), `runner.rs` (host-side `Runner` trait +
+  `RunnerContext`/`RunnerOutcome`; the real `ai-runner` adoption in a
+  later phase will replace this surface but the early shape keeps the
+  trait object-safe and bus-aware), and `mock_runner.rs` (scripted
+  `MockRunner` driving `Vec<MockStep>` of `Emit`/`Sleep`/`Finish`).
+  The driver lives in `driver.rs` as a free function `drive_job`
+  rather than a method on `InProcessRpc` because the eventual stage-10
+  surface composes it with a scheduler — coupling it to the RPC type
+  now would force a refactor at that point. State-machine rule:
+  framing events (`job-started`, `job-completed`, `job-failed`) are
+  emitted only by the driver; runners never publish them. `Stopped`
+  is reachable only via the `stop_job` RPC, which races the driver
+  through the shared store — the driver re-reads job status after the
+  runner returns and silently exits if a stop already landed, so a
+  user-initiated stop wins against a completing runner. New runtime
+  dep: `thiserror = "1"` for the transition-error type.
 - Working branch is feat/bootstrap-cargo-workspace (the existing branch
   that already carries the 8 crate stubs). User confirmed reuse rather
   than cutting a new feat/phase-1-skeleton.
