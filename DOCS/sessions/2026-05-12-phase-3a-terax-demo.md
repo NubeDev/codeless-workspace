@@ -34,8 +34,8 @@ Goal: Get a working browser demo of the Terax-derived UI driving
       review row. The CLI demo is implicit — `codeless serve` is
       the demo's backend.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stages 2 + 3 green)
-Current stage: 4 / 5
+Last tick: 2026-05-12 (DONE — stages 1-5 [x])
+Current stage: 5 / 5 (DONE)
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 3a stacks on the
@@ -101,7 +101,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          --init-token`; terminal B: `pnpm -C codeless/ui/codeless-
          ui dev`; paste token; open `JobsDashboard`).
 
-- [ ] 4. [S] End-to-end demo dry run. Boot the server against a   ← next
+- [x] 4. [S] End-to-end demo dry run. Boot the server against a
          fresh DB, seed one repo + one job via CLI, load the
          browser at `http://localhost:5173/?core=...`, paste the
          token, screenshot or describe what the UI shows. Any
@@ -109,7 +109,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          a follow-up Note in this file; do NOT widen scope into
          UI rework inside this stage.
 
-- [ ] 5. [S] Phase 3a wrap-up. CODELESS.md gets a Phase 3a entry
+- [x] 5. [S] Phase 3a wrap-up. CODELESS.md gets a Phase 3a entry
          (codeless-server + serve + demo path). README quickstart
          gains a "Run the browser demo" subsection pointing at
          `DEMO-UI.md`. Three verify gates green; combined Phase
@@ -146,6 +146,28 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
   `codeless-server` (loopback-only by default, so Any-origin is
   correct for the single-tenant MVP) so the browser at `:5173` can
   hit the core at `:7777` without a preflight failure.
+- Stage 4 dry-run results (server bound to `127.0.0.1:7787`, fresh
+  SQLite, single-tenant token):
+  - `POST /rpc/list_repos` → `{"repos":[]}` then, after `add_repo`,
+    a one-entry array with ULID id + `created_at` ms timestamp.
+  - `POST /rpc/submit_job` → Job row with `status:"queued"`,
+    `stop_reason:null`, all caps and timestamps populated.
+  - `POST /rpc/stop_job` → 200; subsequent `get_job` shows
+    `status:"stopped"`, `stop_reason:"user"`, `ended_at` set.
+  - `GET /events?scope=all&since=0` replays `repo-added` (cursor 1)
+    + `job-queued` (cursor 2) as SSE frames with `id: <cursor>`
+    lines, then the live tail surfaces `job-stopped` (cursor 3)
+    within ~1s of the stop_job request.
+  - Auth gates: no bearer → 401; wrong job id → 404.
+  - Wire format matches the UI's `wire.ts` exactly (kebab-case
+    event types, snake_case fields, `cursor` as int). The
+    JobsDashboard would render `demo` → `demo/job-1` → `stopped`
+    + reason `user` once the localStorage keys point at the core.
+- Stage 5 wrap-up: CODELESS.md picks up a "Phase 3a — browser demo
+  loop" subsection; README quickstart gains a "Run the browser
+  demo" subsection that links to DEMO-UI.md. Three verify gates
+  green at 118 tests / 0 failures, clippy -D warnings clean,
+  `cargo fmt --check` clean.
 - `HttpSseClient` already documents the wire shape (bearer header
   on REST; `?token=` query on SSE because EventSource has no
   header API). The server must conform to *that* contract, not
