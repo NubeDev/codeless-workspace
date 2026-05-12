@@ -37,8 +37,8 @@ Goal: Replace `MemoryStore` with SQLite-backed persistence; persist
       scheduler in Phase 2b has a real queue to drive; prove
       resumability across a simulated core restart.
 Started: 2026-05-12
-Last tick: 2026-05-12 (init)
-Current stage: 1 / 9
+Last tick: 2026-05-12 (tick 1 — stage 1)
+Current stage: 2 / 9
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence
@@ -49,9 +49,9 @@ Max ticks:   30
 ## Stages
 Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 
-- [ ] 1. [S] `InProcessRpc::with_db(pool)` plumbing; keep `new()` as a  ← next
+- [x] 1. [S] `InProcessRpc::with_db(pool)` plumbing; keep `new()` as a
          `:memory:` shortcut for tests. Migrations applied on construction.
-- [ ] 2. [M] Repo + Job persistence: `SqliteStore` replaces `MemoryStore`
+- [ ] 2. [M] Repo + Job persistence: `SqliteStore` replaces `MemoryStore`  ← next
          for repos and jobs (sqlx queries against the Appendix A tables).
          All existing in-process RPC tests stay green against the new store.
 - [ ] 3. [M] Event persistence + cursor allocation. `EventBus` writes
@@ -82,6 +82,20 @@ Likely batching (planning hint, not a contract):
 - Tick 7: stage 9 (S).
 
 ## Notes
+- Stage 1: `InProcessRpc::new()` and `InProcessRpc::with_db(pool)` are
+  now async + fallible (`Result<Self, sqlx::Error>`). Both run the
+  Appendix A migrator on construction so callers never have to
+  remember a separate setup step. Default constructor uses an
+  `sqlite::memory:` pool — sqlx pools that URL by keeping a single
+  dedicated connection alive for the pool lifetime, so successive
+  queries against the same `InProcessRpc::new()` see the same data
+  (which is the property our tests depend on). Drop the `Default`
+  impl and `with_capacity` — neither was used by any caller, and a
+  fallible async constructor cannot implement `Default` anyway.
+  New `pool()` accessor exposes the `SqlitePool` for the upcoming
+  query-based store. Two-test pair `tests/rpc_with_db.rs` pins
+  schema-after-construction + idempotent re-migration. All 12
+  existing rpc/job-driver test sites got `.await.unwrap()` appended.
 - Branch `feat/phase-2a-persistence` cut from
   `feat/bootstrap-cargo-workspace` at the Phase 1 wrap-up commit. PR
   target is the same parent branch (or a new `develop` once we have
