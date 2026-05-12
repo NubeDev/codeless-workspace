@@ -26,8 +26,8 @@ Goal: A user with a fresh checkout can run two commands
       and watches it complete via SSE — all against the real
       `codeless-server`, no mocks.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:36
-Current stage: 2 / 8
+Last tick: 2026-05-12 17:38
+Current stage: 3 / 8
 
 Repo:        codeless
 Branch:      master
@@ -45,12 +45,13 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
        Server exposes `/rpc/fs_cwd`; http client wraps it. Both
        snapshots regenerated.
 
-- [ ] 2. [S] UI: explorer + paths adapter — when `usePaths().home`
-       returns null AND an HTTP transport is in use, call `fs_cwd`
-       and use its result as the home path. Mock client keeps
-       returning what it returns today. Result: opening the browser
-       against a real server shows the workspace contents immediately
-       instead of "no current directory".
+- [x] 2. [S] UI fallback to `fs_cwd` was already wired in `App.tsx`
+       from a prior pass — `usePaths().homeDir()` first; if null,
+       `rpc.call("fs_cwd", {})`. Stage 1 made the Rust side actually
+       answer the call. UI tsc clean. Mock client already implements
+       `fs_cwd`. Effective result: opening the browser against a
+       real server now shows the workspace contents instead of "no
+       current directory".
 
 - [ ] 3. [S] CLI: `codeless demo bootstrap` verb — adds one repo
        row (using the fs root as `local_path`) and submits one mock
@@ -105,5 +106,9 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 (none)
 
 ## Tick log
+- Tick 2 (2026-05-12 17:38): stage 2. No code change needed — the
+  UI fallback already existed. Stage 1's Rust impl makes it actually
+  resolve. The explorer now shows the workspace root on first paint
+  against a real server.
 - Tick 1 (2026-05-12 17:36): stage 1. `fs_cwd` end-to-end (types,
   trait, runtime, server, client, snapshots).
