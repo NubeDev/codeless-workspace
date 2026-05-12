@@ -83,14 +83,14 @@ impl Runner for CodexRunner {
             Err(e) => {
                 let msg = format!("spawn codex: {e}");
                 let _ = on_event
-                .send(Event {
-                    session_id: session_id.clone(),
-                    provider: self.provider().to_string(),
-                    kind: EventKind::Error {
-                        message: msg.clone(),
-                    },
-                })
-                .await;
+                    .send(Event {
+                        session_id: session_id.clone(),
+                        provider: self.provider().to_string(),
+                        kind: EventKind::Error {
+                            message: msg.clone(),
+                        },
+                    })
+                    .await;
                 result.error = Some(msg);
                 return Ok(result);
             }
@@ -102,14 +102,14 @@ impl Runner for CodexRunner {
 
         // Emit "connected" before the first line.
         let _ = on_event
-                .send(Event {
-            session_id: session_id.clone(),
-            provider: self.provider().to_string(),
-            kind: EventKind::Connected {
-                model: Some(model.clone()),
-            },
-        })
-                .await;
+            .send(Event {
+                session_id: session_id.clone(),
+                provider: self.provider().to_string(),
+                kind: EventKind::Connected {
+                    model: Some(model.clone()),
+                },
+            })
+            .await;
 
         let mut text_buf = String::new();
         let mut cancelled = false;
@@ -158,42 +158,42 @@ impl Runner for CodexRunner {
             Ok(status) if !status.success() => {
                 let msg = format!("codex exited with code {}", status.code().unwrap_or(-1));
                 let _ = on_event
-                .send(Event {
-                    session_id: session_id.clone(),
-                    provider: self.provider().to_string(),
-                    kind: EventKind::Error {
-                        message: msg.clone(),
-                    },
-                })
-                .await;
+                    .send(Event {
+                        session_id: session_id.clone(),
+                        provider: self.provider().to_string(),
+                        kind: EventKind::Error {
+                            message: msg.clone(),
+                        },
+                    })
+                    .await;
                 Some(msg)
             }
             Err(e) => {
                 let msg = format!("codex wait: {e}");
                 let _ = on_event
-                .send(Event {
-                    session_id: session_id.clone(),
-                    provider: self.provider().to_string(),
-                    kind: EventKind::Error {
-                        message: msg.clone(),
-                    },
-                })
-                .await;
+                    .send(Event {
+                        session_id: session_id.clone(),
+                        provider: self.provider().to_string(),
+                        kind: EventKind::Error {
+                            message: msg.clone(),
+                        },
+                    })
+                    .await;
                 Some(msg)
             }
             _ => {
                 let _ = on_event
-                .send(Event {
-                    session_id: session_id.clone(),
-                    provider: self.provider().to_string(),
-                    kind: EventKind::Done {
-                        duration_ms,
-                        cost_usd: 0.0,
-                        input_tokens: 0,
-                        output_tokens: 0,
-                    },
-                })
-                .await;
+                    .send(Event {
+                        session_id: session_id.clone(),
+                        provider: self.provider().to_string(),
+                        kind: EventKind::Done {
+                            duration_ms,
+                            cost_usd: 0.0,
+                            input_tokens: 0,
+                            output_tokens: 0,
+                        },
+                    })
+                    .await;
                 None
             }
         };

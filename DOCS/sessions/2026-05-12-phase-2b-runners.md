@@ -39,8 +39,8 @@ Goal: Adopt the vendored `ai-runner` crate, run real coding runners
       so every job runs in its own checkout, and add cost tracking
       with cap-driven cancellation.
 Started: 2026-05-12
-Last tick: 2026-05-12 (init)
-Current stage: 1 / 7
+Last tick: 2026-05-12 (stage 1)
+Current stage: 2 / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2b stacks on the same
@@ -53,13 +53,13 @@ Max ticks:   30
 ## Stages
 Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 
-- [ ] 1. [M] Adopt the vendored `ai-runner` crate as a workspace member  ← next
+- [x] 1. [M] Adopt the vendored `ai-runner` crate as a workspace member
          and add `codeless-adapters-host::ai_runner_bridge` translating
          `ai-runner`'s `mpsc::Sender<RunnerEvent>` output into
          `codeless-types::Event` and publishing through `EventBus`.
          Keep our local `Runner` trait + `MockRunner` working alongside
          as the scriptable test path.
-- [ ] 2. [M] Worktree-per-job: `drive_job` creates a `git worktree`
+- [ ] 2. [M] Worktree-per-job: `drive_job` creates a `git worktree`  ← next
          via `WorktreeManager` before invoking the runner, threads
          the worktree path into `RunnerContext`, and removes the
          worktree on terminal status. Test pins lifecycle (existence
@@ -95,6 +95,25 @@ Likely batching (planning hint, not a contract):
 - Tick 6: stage 7 (S) — wrap-up + DONE.
 
 ## Notes
+- Stage 1: `../ai-runner` added to `codeless/Cargo.toml` members and
+  the workspace gained the `workspace.dependencies` block + `publish`
+  field that ai-runner inherits via `.workspace = true`. One edit
+  landed in ai-runner itself: `workspace = "../codeless"` in its
+  `[package]` table — required because ai-runner lives outside the
+  workspace directory tree, so Cargo's upward search can't find the
+  root on its own. Bridge sits at
+  `codeless-adapters-host/src/ai_runner_bridge.rs` with two entry
+  points: `map_event` (pure `ai_runner::Event` → `Option<Event>`) and
+  `forward_events` (drains an mpsc channel, calls a caller-supplied
+  publish closure). The closure shape keeps the runtime → adapters-host
+  edge intact — `EventBus` lives in runtime, so adapters-host never
+  imports it. Unit tests cover Text/ToolUse/Done mapping, Connected
+  + Error drop, and channel-drain ordering. MockRunner + the local
+  `Runner` trait are untouched. Side-effect of the workspace join:
+  `cargo fmt --check` now formats ai-runner too, which produced a
+  one-off whitespace pass across `ai-runner/src/runners/*.rs`. No
+  logic changes; one `// NO_PRINTLN_LINT:allow` annotation moved to
+  its own line, confirmed inert (no consumer in the codeless tree).
 - The vendored `ai-runner` crate sits at `ai-runner/` in the workspace
   (one level up from the inner `codeless` repo). Workspace member path
   is `../ai-runner` from the `codeless` Cargo workspace root. Pin via

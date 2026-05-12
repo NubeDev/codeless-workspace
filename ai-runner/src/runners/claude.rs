@@ -513,7 +513,8 @@ mod discover_tests {
                 assert!(p.is_file(), "discovered path {p:?} is not a file");
             }
             None => {
-                eprintln!("no claude found — skipping (set CLAUDE_BINARY to force)"); // NO_PRINTLN_LINT:allow
+                eprintln!("no claude found — skipping (set CLAUDE_BINARY to force)");
+                // NO_PRINTLN_LINT:allow
             }
         }
     }

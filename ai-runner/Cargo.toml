@@ -1,6 +1,12 @@
 [package]
 name = "ai-runner"
 description = "Unified AI runner — CLI (claude-wrapper, codex) and REST (anthropic-ai-sdk, async-openai)"
+# `ai-runner` sits outside the codeless workspace directory tree
+# (`codeless-workspace/ai-runner/` is a sibling of `codeless/`), so
+# Cargo's upward search cannot auto-locate the workspace root. This
+# explicit pointer is the only edit codeless vendoring imposes on
+# the upstream crate; everything else flows from rubix-agent.
+workspace = "../codeless"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -72,7 +72,13 @@ impl Runner for AnthropicRunner {
             Some(k) => k,
             None => {
                 let msg = "no API key: set ANTHROPIC_API_KEY or RestCfg::api_key".to_string();
-                emit_error(&on_event, &session_id, &self.provider().to_string(), msg.clone()).await;
+                emit_error(
+                    &on_event,
+                    &session_id,
+                    &self.provider().to_string(),
+                    msg.clone(),
+                )
+                .await;
                 result.error = Some(msg);
                 return Ok(result);
             }
@@ -82,7 +88,13 @@ impl Runner for AnthropicRunner {
             Ok(c) => c,
             Err(e) => {
                 let msg = format!("client init: {e}");
-                emit_error(&on_event, &session_id, &self.provider().to_string(), msg.clone()).await;
+                emit_error(
+                    &on_event,
+                    &session_id,
+                    &self.provider().to_string(),
+                    msg.clone(),
+                )
+                .await;
                 result.error = Some(msg);
                 return Ok(result);
             }
@@ -132,7 +144,13 @@ impl Runner for AnthropicRunner {
             Ok(s) => s,
             Err(e) => {
                 let msg = format!("request: {e}");
-                emit_error(&on_event, &session_id, &self.provider().to_string(), msg.clone()).await;
+                emit_error(
+                    &on_event,
+                    &session_id,
+                    &self.provider().to_string(),
+                    msg.clone(),
+                )
+                .await;
                 result.error = Some(msg);
                 return Ok(result);
             }
@@ -169,13 +187,15 @@ impl Runner for AnthropicRunner {
             match ev_result {
                 Ok(ev) => match ev {
                     StreamEvent::MessageStart { message } => {
-                        let _ = on_event.send(Event {
-                            session_id: session_id.clone(),
-                            provider: provider_str.clone(),
-                            kind: EventKind::Connected {
-                                model: Some(model.clone()),
-                            },
-                        }).await;
+                        let _ = on_event
+                            .send(Event {
+                                session_id: session_id.clone(),
+                                provider: provider_str.clone(),
+                                kind: EventKind::Connected {
+                                    model: Some(model.clone()),
+                                },
+                            })
+                            .await;
                         input_tokens = message.usage.input_tokens;
                     }
                     StreamEvent::ContentBlockStart {
@@ -203,11 +223,13 @@ impl Runner for AnthropicRunner {
                     StreamEvent::ContentBlockDelta { index, delta } => match delta {
                         ContentBlockDelta::TextDelta { text } => {
                             text_buf.push_str(&text);
-                            let _ = on_event.send(Event {
-                                session_id: session_id.clone(),
-                                provider: provider_str.clone(),
-                                kind: EventKind::Text { content: text },
-                            }).await;
+                            let _ = on_event
+                                .send(Event {
+                                    session_id: session_id.clone(),
+                                    provider: provider_str.clone(),
+                                    kind: EventKind::Text { content: text },
+                                })
+                                .await;
                         }
                         ContentBlockDelta::InputJsonDelta { partial_json } => {
                             if let Some(p) = pending.get_mut(&index) {
@@ -229,15 +251,17 @@ impl Runner for AnthropicRunner {
                                     }
                                 }
                             };
-                            let _ = on_event.send(Event {
-                                session_id: session_id.clone(),
-                                provider: provider_str.clone(),
-                                kind: EventKind::ToolUse {
-                                    id: Some(p.id.clone()),
-                                    name: p.name.clone(),
-                                    input: Some(input.clone()),
-                                },
-                            }).await;
+                            let _ = on_event
+                                .send(Event {
+                                    session_id: session_id.clone(),
+                                    provider: provider_str.clone(),
+                                    kind: EventKind::ToolUse {
+                                        id: Some(p.id.clone()),
+                                        name: p.name.clone(),
+                                        input: Some(input.clone()),
+                                    },
+                                })
+                                .await;
                             tool_uses.push(ToolUse {
                                 id: p.id,
                                 name: p.name,
@@ -250,28 +274,32 @@ impl Runner for AnthropicRunner {
                     }
                     StreamEvent::MessageDelta { .. } => {}
                     StreamEvent::MessageStop => {
-                        let _ = on_event.send(Event {
-                            session_id: session_id.clone(),
-                            provider: provider_str.clone(),
-                            kind: EventKind::Done {
-                                duration_ms: start.elapsed().as_millis() as u64,
-                                cost_usd: 0.0,
-                                input_tokens,
-                                output_tokens,
-                            },
-                        }).await;
+                        let _ = on_event
+                            .send(Event {
+                                session_id: session_id.clone(),
+                                provider: provider_str.clone(),
+                                kind: EventKind::Done {
+                                    duration_ms: start.elapsed().as_millis() as u64,
+                                    cost_usd: 0.0,
+                                    input_tokens,
+                                    output_tokens,
+                                },
+                            })
+                            .await;
                         break;
                     }
                     StreamEvent::Error { error: e } => {
                         let msg = format!("stream error: {:?}", e);
                         warn!(provider = "anthropic", "{msg}");
-                        let _ = on_event.send(Event {
-                            session_id: session_id.clone(),
-                            provider: provider_str.clone(),
-                            kind: EventKind::Error {
-                                message: msg.clone(),
-                            },
-                        }).await;
+                        let _ = on_event
+                            .send(Event {
+                                session_id: session_id.clone(),
+                                provider: provider_str.clone(),
+                                kind: EventKind::Error {
+                                    message: msg.clone(),
+                                },
+                            })
+                            .await;
                         error = Some(msg);
                         break;
                     }
@@ -280,13 +308,15 @@ impl Runner for AnthropicRunner {
                 Err(e) => {
                     let msg = format!("stream recv: {e}");
                     warn!(provider = "anthropic", "{msg}");
-                    let _ = on_event.send(Event {
-                        session_id: session_id.clone(),
-                        provider: provider_str.clone(),
-                        kind: EventKind::Error {
-                            message: msg.clone(),
-                        },
-                    }).await;
+                    let _ = on_event
+                        .send(Event {
+                            session_id: session_id.clone(),
+                            provider: provider_str.clone(),
+                            kind: EventKind::Error {
+                                message: msg.clone(),
+                            },
+                        })
+                        .await;
                     error = Some(msg);
                     break;
                 }

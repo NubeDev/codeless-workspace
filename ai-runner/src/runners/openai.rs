@@ -71,7 +71,13 @@ impl Runner for OpenAiRunner {
             Some(k) => k,
             None => {
                 let msg = "no API key: set OPENAI_API_KEY or RestCfg::api_key".to_string();
-                emit_error(&on_event, &session_id, &self.provider().to_string(), msg.clone()).await;
+                emit_error(
+                    &on_event,
+                    &session_id,
+                    &self.provider().to_string(),
+                    msg.clone(),
+                )
+                .await;
                 result.error = Some(msg);
                 return Ok(result);
             }
@@ -132,7 +138,13 @@ impl Runner for OpenAiRunner {
             Ok(r) => r,
             Err(e) => {
                 let msg = format!("request build: {e}");
-                emit_error(&on_event, &session_id, &self.provider().to_string(), msg.clone()).await;
+                emit_error(
+                    &on_event,
+                    &session_id,
+                    &self.provider().to_string(),
+                    msg.clone(),
+                )
+                .await;
                 result.error = Some(msg);
                 return Ok(result);
             }
@@ -142,7 +154,13 @@ impl Runner for OpenAiRunner {
             Ok(s) => s,
             Err(e) => {
                 let msg = format!("request: {e}");
-                emit_error(&on_event, &session_id, &self.provider().to_string(), msg.clone()).await;
+                emit_error(
+                    &on_event,
+                    &session_id,
+                    &self.provider().to_string(),
+                    msg.clone(),
+                )
+                .await;
                 result.error = Some(msg);
                 return Ok(result);
             }
@@ -173,49 +191,57 @@ impl Runner for OpenAiRunner {
                         let m = Some(response.model.clone())
                             .filter(|s| !s.is_empty())
                             .or(Some(model.clone()));
-                        let _ = on_event.send(Event {
-                            session_id: session_id.clone(),
-                            provider: provider_str.clone(),
-                            kind: EventKind::Connected { model: m },
-                        }).await;
+                        let _ = on_event
+                            .send(Event {
+                                session_id: session_id.clone(),
+                                provider: provider_str.clone(),
+                                kind: EventKind::Connected { model: m },
+                            })
+                            .await;
                     }
 
                     for choice in response.choices {
                         if let Some(content) = choice.delta.content {
                             if !content.is_empty() {
                                 text_buf.push_str(&content);
-                                let _ = on_event.send(Event {
-                                    session_id: session_id.clone(),
-                                    provider: provider_str.clone(),
-                                    kind: EventKind::Text { content },
-                                }).await;
+                                let _ = on_event
+                                    .send(Event {
+                                        session_id: session_id.clone(),
+                                        provider: provider_str.clone(),
+                                        kind: EventKind::Text { content },
+                                    })
+                                    .await;
                             }
                         }
                         // finish_reason signals stream end.
                         if choice.finish_reason.is_some() {
-                            let _ = on_event.send(Event {
-                                session_id: session_id.clone(),
-                                provider: provider_str.clone(),
-                                kind: EventKind::Done {
-                                    duration_ms: start.elapsed().as_millis() as u64,
-                                    cost_usd: 0.0,
-                                    input_tokens: 0,
-                                    output_tokens: 0,
-                                },
-                            }).await;
+                            let _ = on_event
+                                .send(Event {
+                                    session_id: session_id.clone(),
+                                    provider: provider_str.clone(),
+                                    kind: EventKind::Done {
+                                        duration_ms: start.elapsed().as_millis() as u64,
+                                        cost_usd: 0.0,
+                                        input_tokens: 0,
+                                        output_tokens: 0,
+                                    },
+                                })
+                                .await;
                         }
                     }
                 }
                 Err(e) => {
                     let msg = format!("stream recv: {e}");
                     warn!(provider = "openai", "{msg}");
-                    let _ = on_event.send(Event {
-                        session_id: session_id.clone(),
-                        provider: provider_str.clone(),
-                        kind: EventKind::Error {
-                            message: msg.clone(),
-                        },
-                    }).await;
+                    let _ = on_event
+                        .send(Event {
+                            session_id: session_id.clone(),
+                            provider: provider_str.clone(),
+                            kind: EventKind::Error {
+                                message: msg.clone(),
+                            },
+                        })
+                        .await;
                     error = Some(msg);
                     break;
                 }
