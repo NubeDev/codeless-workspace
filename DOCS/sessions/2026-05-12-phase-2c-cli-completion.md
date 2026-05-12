@@ -25,8 +25,8 @@ Goal: Finish the remaining SCOPE.md Phase 2 deliverables — CLI
       ready for browser-shell work (Phase 3) without further CLI
       churn.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 2 split into 2a + 2b)
-Current stage: 2a / 7
+Last tick: 2026-05-12 (stage 2a)
+Current stage: 2b / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2c stacks on the same
@@ -45,7 +45,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          so existing tests keep passing. Test uses the fake `claude`
          binary on explicit PATH (per SCOPE testing strategy) and
          asserts events stream through to stdout JSON-line output.
-- [ ] 2a. [M] Review RPC surface on `codeless-rpc::RpcServer`:    ← next
+- [x] 2a. [M] Review RPC surface on `codeless-rpc::RpcServer`:
           `list_reviews`, `approve_review`, `comment_review`,
           `stop_review`. Adds the arg/result types in
           `codeless-rpc::methods`, the trait methods on
@@ -54,7 +54,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
           `reviews` table. Unit tests cover each transition
           (approve from AwaitingReview, comment any time, stop
           from AwaitingReview).
-- [ ] 2b. [S] CLI review surface: `codeless review {list,approve,
+- [ ] 2b. [S] CLI review surface: `codeless review {list,approve,  ← next
           comment,stop}` clap subcommands calling the 2a RPC
           methods. Integration test submits a job, drives it to
           AwaitingReview via a mock runner, and exercises each
@@ -108,6 +108,15 @@ Likely batching:
   Integration test `run_with_claude_runner_streams_ai_events`
   installs the fake `claude` binary used by phase 2b and asserts
   `ai-token` + `ai-message-complete` + `job-completed` reach stdout.
+- Stage 2a: `RpcServer` gains `list_reviews` / `approve_review` /
+  `comment_review` / `stop_review`. `SqliteStore` gets the matching
+  CRUD helpers and a `review_status` label/parse pair. Resolved
+  reviews block re-resolution via a `Conflict` (shared
+  `resolve_pending_review` helper). Tests in
+  `codeless-runtime/tests/reviews.rs` cover approve / stop /
+  comment / list-filtering / unknown-id (6 cases, all green).
+  Comments do not change status, so post-mortem commentary remains
+  possible after Approved / Stopped.
 
 ## Blockers
 (none)
