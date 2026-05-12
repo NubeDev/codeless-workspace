@@ -21,8 +21,8 @@ Goal in one sentence:
   can refine (and optionally have an AI scope) before submitting.
 
 Started: 2026-05-12
-Last tick: 2026-05-12 19:30
-Current stage: 1 / 13
+Last tick: 2026-05-12 (stage 1 landed)
+Current stage: 2 / 13
 
 Repo:        codeless
 Branch:      master
@@ -62,7 +62,7 @@ provisioned `git worktree` for that repo, the runner streams events
 into the timeline (real Claude responses, real tool calls), and the
 job either runs to completion or hits the review gate.
 
-- [ ] 1. [S] Server: `GET /server/info` (no auth) returns                    ← next
+- [x] 1. [S] Server: `GET /server/info` (no auth) returns
        `{ runners: [...], fs_root: Option<String>, version: String,
        worktree_root: Option<String> }`. Wired in `codeless-server`
        routes, with the data sourced from a new `ServerInfo` field
@@ -72,7 +72,7 @@ job either runs to completion or hits the review gate.
        by the UI to populate the runner dropdown and to detect
        "demo mode" vs "real runners available".
 
-- [ ] 2. [M] `codeless-adapters-host::claude` (new module): a host
+- [ ] 2. [M] `codeless-adapters-host::claude` (new module):                  ← next a host
        helper that locates the `claude` binary using the same
        discovery as `ai-runner::runners::claude::discover_claude_binary`
        (env → PATH → known install paths) and probes `claude --version`.
@@ -222,3 +222,9 @@ a real authoring surface that grows with the job. The user can:
 (none)
 
 ## Tick log
+- stage 1: ServerInfo/RunnerInfo added to codeless-rpc (specta + wire-ts).
+  AppState carries an Arc<ServerInfo> with a builder method
+  `with_server_info`; serve.rs derives the snapshot from ServeArgs.
+  Default-runner rule: real runners outrank `mock` when at least one is
+  `--enable-*`'d, with `claude` beating `anthropic`. Route is plain
+  `GET /server/info` outside the bearer gate (alongside healthz/version).
