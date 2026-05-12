@@ -26,8 +26,8 @@ Goal: A user with a fresh checkout can run two commands
       and watches it complete via SSE — all against the real
       `codeless-server`, no mocks.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:42
-Current stage: 4 / 8
+Last tick: 2026-05-12 17:44
+Current stage: 5 / 8
 
 Repo:        codeless
 Branch:      master
@@ -60,11 +60,12 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
        between bootstrap and `codeless serve`. Smoke-tested both
        paths (fresh seed + skip-on-rerun).
 
-- [ ] 4. [S] UI: empty-state CTA in JobsDashboard — when there are
-       zero repos, render a short instruction block instead of an
-       empty table ("Run `codeless demo bootstrap` to seed a demo
-       repo + mock job, or use Add Repo above"). Keeps the demo
-       discoverable for users who skip the README.
+- [x] 4. [S] `NoReposCta` component rendered in JobsDashboard when
+       `repos.data.length === 0`. Includes the exact bootstrap
+       command line so a user landing on an empty dashboard knows
+       what to type. Doesn't replace the header (still shows 0/0
+       counters) so the relationship between "no repos" and "no
+       jobs" stays visible.
 
 - [ ] 5. [M] Make the mock runner actually run end-to-end through
        the server's background driver. The bits exist
@@ -107,6 +108,10 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 (none)
 
 ## Tick log
+- Tick 4 (2026-05-12 17:44): stage 4. Empty-state CTA in
+  JobsDashboard explicitly points at `codeless demo bootstrap` so a
+  user landing on a fresh database has a one-command path forward
+  without having to read README.
 - Tick 3 (2026-05-12 17:42): stage 3. New `Cmd::Demo` verb;
   bootstrap path verified end-to-end against a tempfile db. Mock
   runner kind chosen so the seeded job can complete without
