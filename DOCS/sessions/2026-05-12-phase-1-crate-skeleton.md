@@ -50,8 +50,8 @@ Goal: Land Phase 1 — types, in-process RPC, specta codegen, initial sqlx
       codeless/CLAUDE.md, secrets CLI, worktree manager, and a green
       end-to-end `codeless run --once` against a runner — all pushed.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 6 — stages 8+9)
-Current stage: 10 / 11
+Last tick: 2026-05-12 (tick 7 — stages 10+11)
+Current stage: 11 / 11
 
 Repo:        codeless
 Branch:      feat/bootstrap-cargo-workspace
@@ -72,9 +72,9 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 7. [S] codeless/CLAUDE.md at repo root capturing the rules from SCOPE.md
 - [x] 8. [S] codeless secrets set/get/rm/list against chmod 600 secrets.toml
 - [x] 9. [S] Worktree manager: git worktree add/remove + reaper-on-startup
-- [ ] 10. [M] codeless run --once --repo <r> "<prompt>" end-to-end against  ← next
+- [x] 10. [M] codeless run --once --repo <r> "<prompt>" end-to-end against
          a chosen runner, streaming events to stdout
-- [ ] 11. [S] Phase 1 wrap-up: README pointer, CODELESS.md memory update,
+- [ ] 11. [S] Phase 1 wrap-up: README pointer, CODELESS.md memory update,  ← next
          confirm cargo test --workspace + clippy -D warnings + fmt --check green
 
 Likely batching (planning hint, not a contract):
@@ -92,6 +92,25 @@ Note: bootstrap stage "Cargo workspace + crate stubs" is already complete
 Phase 1 — see commit ebd18a5.
 
 ## Notes
+- Stage 10: `codeless run --repo <path> [--runner mock] "<prompt>"` is
+  the end-to-end Phase 1 dogfood path. CLI module split into
+  `src/main.rs` (clap definitions + dispatch only), `src/secrets.rs`,
+  and `src/run.rs` per the "one concept per file" rule. `run::handle`
+  builds an `InProcessRpc`, registers the repo, submits the job,
+  subscribes with `EventFilter::Job`, spawns `drive_job` against
+  `MockRunner`, and emits each `EventEnvelope` as one JSON line on
+  stdout. The drain loop ends on the framing events
+  (`job-completed` / `job-failed` / `job-stopped`), not on the
+  runner's outcome directly — so the exit code matches what an
+  outside observer would see over the wire. Tokio multi-thread
+  runtime is built per-invocation rather than via `#[tokio::main]`
+  because the secrets subcommand is sync; this keeps the
+  `secrets`-only path free of async overhead. `--once` is accepted as
+  a placeholder flag (default true) to keep the documented
+  invocation shape stable when daemon mode lands. Worktree wiring is
+  deliberately out of scope here — the stage title is "streaming
+  events to stdout", and the worktree manager from stage 9 will be
+  threaded in alongside real (non-mock) runners.
 - Stage 9: `WorktreeManager` in `codeless-adapters-host::worktree`
   shells out to `git worktree {add,remove,prune}`. Process spawn lives
   exclusively in this crate — every other crate stays mobile-safe
