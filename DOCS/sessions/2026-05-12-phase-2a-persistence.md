@@ -37,7 +37,7 @@ Goal: Replace `MemoryStore` with SQLite-backed persistence; persist
       scheduler in Phase 2b has a real queue to drive; prove
       resumability across a simulated core restart.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 7 — stage 8)
+Last tick: 2026-05-12 (tick 8 — stage 9)  DONE
 Current stage: 9 / 9
 
 Repo:        codeless
@@ -69,7 +69,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 8. [M] Resumability: integration test that builds a runtime,
          queues a job + tasks, drops the runtime, rebuilds against
          the same DB file, and continues from where state left off.
-- [ ] 9. [S] Phase 2a wrap-up: CODELESS.md + README quickstart  ← next
+- [x] 9. [S] Phase 2a wrap-up: CODELESS.md + README quickstart
          refresh, three verify gates green, branch ready for PR.
 
 Likely batching (planning hint, not a contract):
@@ -82,6 +82,16 @@ Likely batching (planning hint, not a contract):
 - Tick 7: stage 9 (S).
 
 ## Notes
+- Stage 9: Phase 2a wrap-up. CODELESS.md "What this repo is, today"
+  refreshed to call out `SqliteStore`, the events-table cursor
+  allocator, since-replay, the lease-based queue with three-scope
+  caps, `spawn_heartbeat`, and the startup reaper. Durable-facts log
+  gained a Phase 2a entry pointing the next agent at Phase 2b/2c
+  scope (real runners, worktree threading into `drive_job`, HTTP/SSE
+  server, review/notifier). README quickstart's "Phase 1" hedge
+  removed and a paragraph added explaining the SQLite persistence
+  model + resumability guarantee. All three gates green at wrap-up:
+  cargo test --workspace, clippy -D warnings, fmt --check.
 - Stage 8: `tests/resumability.rs` is the load-bearing proof of the
   Phase 2a contract. The test opens a tempdir-backed SQLite file via
   `SqliteConnectOptions::filename(path).create_if_missing(true)`,
