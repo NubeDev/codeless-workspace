@@ -26,8 +26,8 @@ Goal: A user with a fresh checkout can run two commands
       and watches it complete via SSE — all against the real
       `codeless-server`, no mocks.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:44
-Current stage: 5 / 8
+Last tick: 2026-05-12 17:47
+Current stage: 6 / 8
 
 Repo:        codeless
 Branch:      master
@@ -67,13 +67,17 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
        counters) so the relationship between "no repos" and "no
        jobs" stays visible.
 
-- [ ] 5. [M] Make the mock runner actually run end-to-end through
-       the server's background driver. The bits exist
-       (`spawn_job_driver_loop` is wired in `codeless serve`), but
-       the demo bootstrap job needs to actually transition
-       Queued -> Running -> Completed when the driver picks it up.
-       This is a runtime correctness check + targeted integration
-       test if needed; no new public API unless a gap is found.
+- [x] 5. [M] End-to-end mock-runner verified: bootstrap a tempdb,
+       boot `codeless serve` on an ephemeral port, wait, list_jobs
+       returns `status: "completed"` and `cost_cents: 0`. To make
+       the job visibly alive on the dashboard (instead of going
+       Queued -> Completed with no body), the `DefaultRunnerFactory`
+       mock case now scripts a short `TaskStarted` -> N x `AiToken`
+       (word-sized chunks of the prompt) -> `AiMessageComplete` ->
+       `TaskCompleted` -> `Finish(Completed)` sequence with 120 ms
+       sleeps between tokens. `FAIL` sentinel still goes straight to
+       `Failed`. Real AI runners drive the same event variants, so
+       the timeline renders identically for both.
 
 - [ ] 6. [S] DEMO-UI.md walkthrough at the workspace root: prereqs,
        one-block server-start command, one-block UI-start command,
@@ -108,6 +112,11 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 (none)
 
 ## Tick log
+- Tick 5 (2026-05-12 17:47): stage 5. Mock runner now scripts a
+  visible token stream so the JobsDashboard timeline has content
+  during a demo run. Smoke-tested with a tempdb, ephemeral port,
+  and curl against /rpc/list_jobs at t=0 and t=4s — second call
+  returns status:completed. Stage 7 captures this as a script.
 - Tick 4 (2026-05-12 17:44): stage 4. Empty-state CTA in
   JobsDashboard explicitly points at `codeless demo bootstrap` so a
   user landing on a fresh database has a one-command path forward
