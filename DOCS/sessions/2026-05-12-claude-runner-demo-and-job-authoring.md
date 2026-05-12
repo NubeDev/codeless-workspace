@@ -21,8 +21,8 @@ Goal in one sentence:
   can refine (and optionally have an AI scope) before submitting.
 
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 1 landed)
-Current stage: 2 / 13
+Last tick: 2026-05-12 (stage 2 landed)
+Current stage: 3 / 13
 
 Repo:        codeless
 Branch:      master
@@ -72,7 +72,7 @@ job either runs to completion or hits the review gate.
        by the UI to populate the runner dropdown and to detect
        "demo mode" vs "real runners available".
 
-- [ ] 2. [M] `codeless-adapters-host::claude` (new module):                  ← next a host
+- [x] 2. [M] `codeless-adapters-host::claude` (new module): a host
        helper that locates the `claude` binary using the same
        discovery as `ai-runner::runners::claude::discover_claude_binary`
        (env → PATH → known install paths) and probes `claude --version`.
@@ -84,7 +84,7 @@ job either runs to completion or hits the review gate.
        `/server/info` so the UI can render the right hint
        ("Install Claude Code", "Run `claude auth login`", "Ready").
 
-- [ ] 3. [S] CLI: `codeless serve --enable-claude --worktree-root
+- [ ] 3. [S] CLI: `codeless serve --enable-claude --worktree-root            ← next
        <path>` already exists. Add a `--worktree-root` default that
        points at `<fs-root>/.codeless/worktrees` when both are set,
        so the demo path does not require the operator to invent a
@@ -222,6 +222,14 @@ a real authoring surface that grows with the job. The user can:
 (none)
 
 ## Tick log
+- stage 2: codeless-adapters-host::claude (new module) ports the
+  upstream ai-runner discovery (env -> PATH -> well-known dirs -> editor
+  installs) and adds an async probe that surfaces ClaudeStatus on
+  /server/info. Auth is a best-effort `claude /status --output-format
+  json` with a 2s timeout; ambiguous outcomes return None so the UI's
+  hint stays neutral instead of misreporting. host crate gains a
+  codeless-rpc dep (mobile-safe layering preserved). Unix tests
+  serialize on a tokio Mutex because they mutate process-wide env vars.
 - stage 1: ServerInfo/RunnerInfo added to codeless-rpc (specta + wire-ts).
   AppState carries an Arc<ServerInfo> with a builder method
   `with_server_info`; serve.rs derives the snapshot from ServeArgs.
