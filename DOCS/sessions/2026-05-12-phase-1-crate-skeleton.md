@@ -51,7 +51,7 @@ Goal: Land Phase 1 — types, in-process RPC, specta codegen, initial sqlx
       end-to-end `codeless run --once` against a runner — all pushed.
 Started: 2026-05-12
 Last tick: 2026-05-12 (tick 5 — stages 6+7)
-Current stage: 7 / 11
+Current stage: 8 / 11
 
 Repo:        codeless
 Branch:      feat/bootstrap-cargo-workspace
@@ -69,8 +69,8 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 4. [S] sqlx initial migration matching SCOPE.md Appendix A
 - [x] 5. [M] codeless-runtime state-machine skeleton + MockRunner test harness
 - [x] 6. [S] tracing-subscriber JSON-to-stdout baseline
-- [ ] 7. [S] codeless/CLAUDE.md at repo root capturing the rules from SCOPE.md  ← next
-- [ ] 8. [S] codeless secrets set/get/rm/list against chmod 600 secrets.toml
+- [x] 7. [S] codeless/CLAUDE.md at repo root capturing the rules from SCOPE.md
+- [ ] 8. [S] codeless secrets set/get/rm/list against chmod 600 secrets.toml  ← next
 - [ ] 9. [S] Worktree manager: git worktree add/remove + reaper-on-startup
 - [ ] 10. [M] codeless run --once --repo <r> "<prompt>" end-to-end against
          a chosen runner, streaming events to stdout
@@ -92,6 +92,14 @@ Note: bootstrap stage "Cargo workspace + crate stubs" is already complete
 Phase 1 — see commit ebd18a5.
 
 ## Notes
+- Stage 7: inner-repo `codeless/CLAUDE.md` is now the per-repo agent
+  contract — distilled from the workspace `CLAUDE.md` plus the
+  SCOPE.md crate-layering rules. Designed to be read first by any
+  agent that opens the inner repo directly without descending from
+  the workspace root. Names R1-R5 (dep direction, comment rules,
+  one-file-one-concept, no drive-by, tests-with-code), points back to
+  CODELESS.md for durable per-repo memory, defers to the workspace
+  CLAUDE.md as the tie-breaker when statements disagree.
 - Stage 6: tracing-subscriber JSON layer lives in
   `codeless-runtime::tracing_init`. Two entry points
   (`try_init_json`/`try_init_pretty`) so hosted mode picks JSON for
