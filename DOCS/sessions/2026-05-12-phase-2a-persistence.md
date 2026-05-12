@@ -37,8 +37,8 @@ Goal: Replace `MemoryStore` with SQLite-backed persistence; persist
       scheduler in Phase 2b has a real queue to drive; prove
       resumability across a simulated core restart.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 6 — stages 6+7)
-Current stage: 8 / 9
+Last tick: 2026-05-12 (tick 7 — stage 8)
+Current stage: 9 / 9
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence
@@ -66,10 +66,10 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
          per-repo + per-runner). Config struct fed at construction.
 - [x] 7. [S] Lease heartbeat helper + a startup-time reaper for stale
          leases. Idempotent; safe to call repeatedly.
-- [ ] 8. [M] Resumability: integration test that builds a runtime,  ← next
+- [x] 8. [M] Resumability: integration test that builds a runtime,
          queues a job + tasks, drops the runtime, rebuilds against
          the same DB file, and continues from where state left off.
-- [ ] 9. [S] Phase 2a wrap-up: CODELESS.md + README quickstart
+- [ ] 9. [S] Phase 2a wrap-up: CODELESS.md + README quickstart  ← next
          refresh, three verify gates green, branch ready for PR.
 
 Likely batching (planning hint, not a contract):
@@ -82,6 +82,25 @@ Likely batching (planning hint, not a contract):
 - Tick 7: stage 9 (S).
 
 ## Notes
+- Stage 8: `tests/resumability.rs` is the load-bearing proof of the
+  Phase 2a contract. The test opens a tempdir-backed SQLite file via
+  `SqliteConnectOptions::filename(path).create_if_missing(true)`,
+  builds an `InProcessRpc::with_db(pool)`, lands a non-trivial slice
+  of state (one repo, one job, one stage, three enqueued tasks, one
+  task leased then forged to look expired, plus the events that
+  accumulated from `add_repo`/`submit_job`), captures `MAX(cursor)`
+  from the events table, explicitly closes the pool (`pool.close()`
+  releases the file handle so the second session reads cleaner) and
+  drops the rpc. Session 2 opens a fresh pool against the same path
+  and asserts: repos/jobs visible via the RPC surface, the previously
+  leased-and-expired task is back to `enqueued` (startup reaper
+  ran inside `with_db`), `lease_next` claims it under a new holder,
+  `stop_job` allocates a cursor strictly greater than the captured
+  last_cursor (AUTOINCREMENT survived the restart), and
+  `subscribe(Some(last_cursor))` delivers the freshly published
+  `job-stopped` envelope on the catch-up replay — proving the
+  persisted log is the source of truth for a client reconnecting
+  across the restart. New runtime dev-dep: `tempfile = "3"`.
 - Stage 7: `heartbeat.rs` exports `spawn_heartbeat(store, task_id,
   holder, period, ttl) -> JoinHandle<()>`. The background task sleeps
   `period`, calls `heartbeat_task` with `now + ttl`, and exits on a
