@@ -25,8 +25,8 @@ Goal: Finish the remaining SCOPE.md Phase 2 deliverables — CLI
       ready for browser-shell work (Phase 3) without further CLI
       churn.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 1)
-Current stage: 2 / 6
+Last tick: 2026-05-12 (stage 2 split into 2a + 2b)
+Current stage: 2a / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2c stacks on the same
@@ -45,10 +45,20 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          so existing tests keep passing. Test uses the fake `claude`
          binary on explicit PATH (per SCOPE testing strategy) and
          asserts events stream through to stdout JSON-line output.
-- [!] 2. [S] CLI review surface: `codeless review {list,approve,  ← halted
-         comment,stop}` against existing review state machine. No
-         new RPC methods — just wire the existing ones to clap
-         subcommands.
+- [ ] 2a. [M] Review RPC surface on `codeless-rpc::RpcServer`:    ← next
+          `list_reviews`, `approve_review`, `comment_review`,
+          `stop_review`. Adds the arg/result types in
+          `codeless-rpc::methods`, the trait methods on
+          `RpcServer`, and the `InProcessRpc` implementations
+          that drive the existing review state machine and
+          `reviews` table. Unit tests cover each transition
+          (approve from AwaitingReview, comment any time, stop
+          from AwaitingReview).
+- [ ] 2b. [S] CLI review surface: `codeless review {list,approve,
+          comment,stop}` clap subcommands calling the 2a RPC
+          methods. Integration test submits a job, drives it to
+          AwaitingReview via a mock runner, and exercises each
+          subcommand end-to-end.
 - [ ] 3. [M] YAML job template loader: `codeless job submit
          job.yaml` parses `{repo, runner, prompt, stages, caps}`
          and calls `submit_job`. Test fixture exercises a 2-stage
@@ -70,12 +80,14 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          PR.
 
 Likely batching:
-- Tick 1: stage 1 (M).
-- Tick 2: stage 2 (S) — could pair with stage 4 (S) if both fit.
-- Tick 3: stage 3 (M).
-- Tick 4: stage 4 (S) if not already in tick 2; else stage 5 (M).
-- Tick 5: stage 5 (M).
-- Tick 6: stage 6 (S) — wrap-up + DONE.
+- Tick 1: stage 1 (M).  [done]
+- Tick 2: halted — stage 2 split into 2a + 2b.
+- Tick 3: stage 2a (M).
+- Tick 4: stage 2b (S) + maybe stage 4 (S) if budget allows.
+- Tick 5: stage 3 (M).
+- Tick 6: stage 4 (S) if not already; or stage 5 (M).
+- Tick 7: stage 5 (M).
+- Tick 8: stage 6 (S) — wrap-up + DONE.
 
 ## Notes
 - Phase 2a + 2b are committed and pushed on
@@ -98,24 +110,10 @@ Likely batching:
   `ai-token` + `ai-message-complete` + `job-completed` reach stdout.
 
 ## Blockers
+(none)
 
-- Stage 2 misspecified (2026-05-12, tick 2). The stage says "wire
-  the **existing** review RPC methods to clap subcommands. No new
-  RPC methods." But `codeless_rpc::RpcServer` exposes only
-  add_repo/remove_repo/list_repos/submit_job/get_job/list_jobs/
-  stop_job/subscribe — no list_reviews / approve_review /
-  comment_review / stop_review methods exist. The runtime has the
-  review state machine and the `reviews` table, but there is no
-  RPC surface to drive them. R4 ("new CLI commands go through
-  codeless-rpc methods, not directly against the DB") forbids the
-  CLI from bypassing the RPC layer.
-
-  Resolution paths for the human:
-  (a) Rescope stage 2 to M and add the four review RPC methods +
-      the CLI wiring in one stage.
-  (b) Split into a new stage 2a (M, add review RPC methods +
-      runtime impl + tests) followed by stage 2b (S, clap wiring).
-  (c) Skip stage 2 for Phase 2c and defer review-CLI to a later
-      phase.
-
-  Loop halted. No next tick scheduled.
+Resolved 2026-05-12 (tick 2 halt): the original stage 2 assumed
+review RPC methods existed on `RpcServer`. They did not. Per
+human direction, took option (b) — split into 2a (M, RPC surface)
+and 2b (S, clap wiring). Stage count is now 7 instead of 6; total
+loop budget unchanged.
