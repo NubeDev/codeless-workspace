@@ -39,8 +39,8 @@ Goal: Adopt the vendored `ai-runner` crate, run real coding runners
       so every job runs in its own checkout, and add cost tracking
       with cap-driven cancellation.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 3)
-Current stage: 4 / 7
+Last tick: 2026-05-12 (stage 4)
+Current stage: 5 / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2b stacks on the same
@@ -69,11 +69,11 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
          (SCOPE.md "Testing strategy") — never the developer's host
          install. Asserts a stage's events land via the bridge in the
          expected order.
-- [ ] 4. [M] `AnthropicRunner` wired end-to-end through the bridge.  ← next
+- [x] 4. [M] `AnthropicRunner` wired end-to-end through the bridge.
          Test uses `wiremock` (or similar) to fake the Anthropic API
          and asserts cost numbers from the response land on
          `ai-message-complete` envelopes.
-- [ ] 5. [S] Cost rollup: incoming `ai-message-complete` events
+- [ ] 5. [S] Cost rollup: incoming `ai-message-complete` events  ← next
          increment `jobs.cost_cents` and the affected task's
          `cost_cents` row. Test asserts running totals across a
          multi-message session.
@@ -95,6 +95,24 @@ Likely batching (planning hint, not a contract):
 - Tick 6: stage 7 (S) — wrap-up + DONE.
 
 ## Notes
+- Stage 4: `codeless-runtime/src/anthropic_runner.rs` ships an
+  `AnthropicRunnerAdapter` symmetric to the Claude one — same
+  forward-events plumbing, same `RunResult::error` → `Failed`
+  outcome mapping, just `RestCfg` instead of `CliCfg`. The new
+  `base_url` field on the adapter feeds straight through to
+  `RestCfg::base_url`, which now actually flows: a one-line patch in
+  `ai-runner/src/runners/anthropic.rs` routes the SDK builder
+  through `with_api_base_url` when present. That field was already
+  in `RestCfg`'s public API but unused — the change is a bug-fix
+  shape rather than a feature addition, so future rubix-agent
+  re-sync should keep it intact. `tests/anthropic_runner.rs` runs
+  the full chain against a `wiremock` mock: a hand-built SSE body
+  replays `message_start` (input_tokens=42) → text deltas →
+  `message_delta` (output_tokens=17) → `message_stop`, and asserts
+  the bridge produced ordered `AiToken`s + an `AiMessageComplete`
+  carrying `42` / `17`. Cost is `0` because the upstream runner
+  emits `cost_usd=0.0` for Anthropic (Messages API returns tokens,
+  not dollars); cost rollup from tokens is stage 5's concern.
 - Stage 3: `codeless-runtime/src/claude_runner.rs` hosts the
   `ClaudeRunnerAdapter` that wraps `ai_runner::runners::ClaudeRunner`.
   It owns two pieces of glue: a tokio mpsc channel paired with a

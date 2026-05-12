@@ -84,7 +84,11 @@ impl Runner for AnthropicRunner {
             }
         };
 
-        let client = match AnthropicClient::new::<MessageError>(api_key, ANTHROPIC_VERSION) {
+        let mut builder = AnthropicClient::builder(api_key, ANTHROPIC_VERSION);
+        if let Some(url) = cfg.base_url.as_deref() {
+            builder = builder.with_api_base_url(url);
+        }
+        let client = match builder.build::<MessageError>() {
             Ok(c) => c,
             Err(e) => {
                 let msg = format!("client init: {e}");
