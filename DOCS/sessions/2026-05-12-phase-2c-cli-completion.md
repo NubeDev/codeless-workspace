@@ -25,8 +25,8 @@ Goal: Finish the remaining SCOPE.md Phase 2 deliverables — CLI
       ready for browser-shell work (Phase 3) without further CLI
       churn.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 2a)
-Current stage: 2b / 7
+Last tick: 2026-05-12 (stage 2b)
+Current stage: 3 / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2c stacks on the same
@@ -54,12 +54,12 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
           `reviews` table. Unit tests cover each transition
           (approve from AwaitingReview, comment any time, stop
           from AwaitingReview).
-- [ ] 2b. [S] CLI review surface: `codeless review {list,approve,  ← next
+- [x] 2b. [S] CLI review surface: `codeless review {list,approve,
           comment,stop}` clap subcommands calling the 2a RPC
           methods. Integration test submits a job, drives it to
           AwaitingReview via a mock runner, and exercises each
           subcommand end-to-end.
-- [ ] 3. [M] YAML job template loader: `codeless job submit
+- [ ] 3. [M] YAML job template loader: `codeless job submit  ← next
          job.yaml` parses `{repo, runner, prompt, stages, caps}`
          and calls `submit_job`. Test fixture exercises a 2-stage
          job; round-trip the YAML through serde so a syntax error
@@ -108,6 +108,16 @@ Likely batching:
   Integration test `run_with_claude_runner_streams_ai_events`
   installs the fake `claude` binary used by phase 2b and asserts
   `ai-token` + `ai-message-complete` + `job-completed` reach stdout.
+- Stage 2b: `codeless review {list,approve,comment,stop}` clap
+  subcommands in `crates/codeless-cli/src/review.rs`. Added a
+  global `--db <path>` flag (env: `CODELESS_DB`) and a shared
+  `rpc_open` helper that opens either a file-backed pool or the
+  in-memory pool; both `run` and `review` route through it.
+  `InProcessRpc::with_file(path)` exposes the file pool to keep
+  sqlx out of the CLI deps. Integration tests in
+  `tests/review_cli.rs` seed a review via `with_file`, then drive
+  three subprocess invocations (list → comment → approve →
+  conflict-on-reapprove) against the same DB file.
 - Stage 2a: `RpcServer` gains `list_reviews` / `approve_review` /
   `comment_review` / `stop_review`. `SqliteStore` gets the matching
   CRUD helpers and a `review_status` label/parse pair. Resolved
