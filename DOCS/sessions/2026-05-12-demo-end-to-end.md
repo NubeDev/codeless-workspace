@@ -26,8 +26,8 @@ Goal: A user with a fresh checkout can run two commands
       and watches it complete via SSE — all against the real
       `codeless-server`, no mocks.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:38
-Current stage: 3 / 8
+Last tick: 2026-05-12 17:42
+Current stage: 4 / 8
 
 Repo:        codeless
 Branch:      master
@@ -53,11 +53,12 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
        real server now shows the workspace contents instead of "no
        current directory".
 
-- [ ] 3. [S] CLI: `codeless demo bootstrap` verb — adds one repo
-       row (using the fs root as `local_path`) and submits one mock
-       job, idempotent (skips if a repo named "demo" already exists).
-       So a fresh database does not greet the user with empty
-       repos + empty jobs.
+- [x] 3. [S] `codeless demo bootstrap --db <path>` seeds one repo
+       named "demo" (idempotent — name-collision short-circuits)
+       and submits one queued mock job. `--local-path` defaults to
+       cwd. Refuses to run without `--db` so the seed cannot vanish
+       between bootstrap and `codeless serve`. Smoke-tested both
+       paths (fresh seed + skip-on-rerun).
 
 - [ ] 4. [S] UI: empty-state CTA in JobsDashboard — when there are
        zero repos, render a short instruction block instead of an
@@ -106,6 +107,11 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 (none)
 
 ## Tick log
+- Tick 3 (2026-05-12 17:42): stage 3. New `Cmd::Demo` verb;
+  bootstrap path verified end-to-end against a tempfile db. Mock
+  runner kind chosen so the seeded job can complete without
+  external dependencies once the server's background driver picks
+  it up.
 - Tick 2 (2026-05-12 17:38): stage 2. No code change needed — the
   UI fallback already existed. Stage 1's Rust impl makes it actually
   resolve. The explorer now shows the workspace root on first paint
