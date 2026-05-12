@@ -37,8 +37,8 @@ Goal: Replace `MemoryStore` with SQLite-backed persistence; persist
       scheduler in Phase 2b has a real queue to drive; prove
       resumability across a simulated core restart.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 3 — stage 3)
-Current stage: 4 / 9
+Last tick: 2026-05-12 (tick 4 — stage 4)
+Current stage: 5 / 9
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence
@@ -57,9 +57,9 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 3. [M] Event persistence + cursor allocation. `EventBus` writes
          to the `events` table first, then broadcasts; cursor comes
          from the autoincrement column, not an in-memory counter.
-- [ ] 4. [M] `subscribe(since)` replays from SQLite from `since+1`  ← next
+- [x] 4. [M] `subscribe(since)` replays from SQLite from `since+1`
          upward, then attaches the live broadcast tail without gaps.
-- [ ] 5. [M] Task queue: `enqueue_task`, `lease_next(runner_kind)`,
+- [ ] 5. [M] Task queue: `enqueue_task`, `lease_next(runner_kind)`,  ← next
          `complete_task`, `fail_task`, `release_expired_leases`. Tests
          pin "no double-lease" and "expired lease reclaim".
 - [ ] 6. [S] Concurrency caps honoured by `lease_next` (global +
@@ -82,6 +82,31 @@ Likely batching (planning hint, not a contract):
 - Tick 7: stage 9 (S).
 
 ## Notes
+- Stage 4: `subscribe(since)` is now end-to-end. The `Conflict` guard
+  in `rpc.rs` is gone; `EventBus::subscribe_since(filter, since)` does
+  the work. Algorithm (commented in the source): (1) `broadcast::
+  subscribe` first so the live tail is captured before anything else,
+  (2) SELECT all rows with `cursor > since` filtered by `SubscribeFilter`,
+  (3) compute `max_seen` from the last replayed row (or `since` itself
+  when replay is empty), (4) chain `tokio_stream::iter(replay)` with the
+  broadcast tail filtered by `cursor > max_seen`. The three points
+  prove gap-free + dedupe: a row visible to SELECT was committed before
+  broadcast, a row that arrived after the SELECT but before the drain is
+  in our rx, and the rare overlap window (rx subscribed + row committed
+  + broadcast fired all in flight when our SELECT ran) is collapsed by
+  the cursor filter. `envelope_from_row` is the reverse of
+  `split_event_json`: it re-inserts the `type` discriminator into the
+  payload object and `serde_json::from_value`s it back to `Event` so
+  the wire-format knowledge stays in event_bus.rs. Strict semantics
+  chosen: `subscribe(Some(c))` only emits cursors strictly greater
+  than `c`. If the caller hands a `since` above the current max, they
+  get nothing until cursors catch up — that is the SSE `Last-Event-ID`
+  contract. New `tests/since_replay.rs` pins three cases:
+  replay-everything (since=0 → cursors 1, 2, 3 in order, mixing
+  replay + live), overlap dedupe (subscribe between cursor 1 and 2 →
+  cursor 2 delivered exactly once), and the strict filter on
+  out-of-range `since`. Old "not yet implemented" test in
+  `rpc_in_process.rs` was rewritten to assert real replay behaviour.
 - Stage 3: `EventBus` now owns the `SqlitePool` and is fallible-async
   on publish (`sqlx::Result<EventCursor>`). The `AtomicI64` cursor
   counter is gone — cursors come from the `events.cursor` AUTOINCREMENT
