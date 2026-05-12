@@ -50,7 +50,7 @@ Goal: Land Phase 1 — types, in-process RPC, specta codegen, initial sqlx
       codeless/CLAUDE.md, secrets CLI, worktree manager, and a green
       end-to-end `codeless run --once` against a runner — all pushed.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 7 — stages 10+11)
+Last tick: 2026-05-12 (tick 7 — stages 10+11)  DONE
 Current stage: 11 / 11
 
 Repo:        codeless
@@ -74,7 +74,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 9. [S] Worktree manager: git worktree add/remove + reaper-on-startup
 - [x] 10. [M] codeless run --once --repo <r> "<prompt>" end-to-end against
          a chosen runner, streaming events to stdout
-- [ ] 11. [S] Phase 1 wrap-up: README pointer, CODELESS.md memory update,  ← next
+- [x] 11. [S] Phase 1 wrap-up: README pointer, CODELESS.md memory update,
          confirm cargo test --workspace + clippy -D warnings + fmt --check green
 
 Likely batching (planning hint, not a contract):
@@ -92,6 +92,19 @@ Note: bootstrap stage "Cargo workspace + crate stubs" is already complete
 Phase 1 — see commit ebd18a5.
 
 ## Notes
+- Stage 11: Phase 1 wrap-up. Inner-repo README now leads with a
+  pointer block (CLAUDE.md, CODELESS.md, ../DOCS/SCOPE.md,
+  ../DOCS/JOB-LOOP.md) and a quickstart that shows
+  `cargo test --workspace`, the three verify gates, `codeless run`,
+  and `codeless secrets`. The historical "fork rationale" text is
+  preserved under a divider. CODELESS.md "What this repo is, today"
+  was rewritten to enumerate the eight crates by their actual Phase 1
+  content; durable-facts log gained a Phase 1 completion entry that
+  points the next agent at Phase 2 work (real runners, worktree
+  threading into `drive_job`, SQLite event log, HTTP/SSE server).
+  All three verify gates are green at wrap-up: cargo test --workspace
+  passes every test, clippy -D warnings is clean, fmt --check is
+  clean.
 - Stage 10: `codeless run --repo <path> [--runner mock] "<prompt>"` is
   the end-to-end Phase 1 dogfood path. CLI module split into
   `src/main.rs` (clap definitions + dispatch only), `src/secrets.rs`,
