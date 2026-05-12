@@ -50,8 +50,8 @@ Goal: Land Phase 1 — types, in-process RPC, specta codegen, initial sqlx
       codeless/CLAUDE.md, secrets CLI, worktree manager, and a green
       end-to-end `codeless run --once` against a runner — all pushed.
 Started: 2026-05-12
-Last tick: 2026-05-12 (tick 4 — stage 5)
-Current stage: 6 / 11
+Last tick: 2026-05-12 (tick 5 — stages 6+7)
+Current stage: 7 / 11
 
 Repo:        codeless
 Branch:      feat/bootstrap-cargo-workspace
@@ -68,8 +68,8 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 - [x] 3. [S] specta wire-type generation + snapshot test
 - [x] 4. [S] sqlx initial migration matching SCOPE.md Appendix A
 - [x] 5. [M] codeless-runtime state-machine skeleton + MockRunner test harness
-- [ ] 6. [S] tracing-subscriber JSON-to-stdout baseline  ← next
-- [ ] 7. [S] codeless/CLAUDE.md at repo root capturing the rules from SCOPE.md
+- [x] 6. [S] tracing-subscriber JSON-to-stdout baseline
+- [ ] 7. [S] codeless/CLAUDE.md at repo root capturing the rules from SCOPE.md  ← next
 - [ ] 8. [S] codeless secrets set/get/rm/list against chmod 600 secrets.toml
 - [ ] 9. [S] Worktree manager: git worktree add/remove + reaper-on-startup
 - [ ] 10. [M] codeless run --once --repo <r> "<prompt>" end-to-end against
@@ -92,6 +92,19 @@ Note: bootstrap stage "Cargo workspace + crate stubs" is already complete
 Phase 1 — see commit ebd18a5.
 
 ## Notes
+- Stage 6: tracing-subscriber JSON layer lives in
+  `codeless-runtime::tracing_init`. Two entry points
+  (`try_init_json`/`try_init_pretty`) so hosted mode picks JSON for
+  systemd/Docker journals and CLI dev picks pretty — per SCOPE.md
+  "tracing baseline". Default `RUST_LOG` filter is
+  `info,sqlx=warn,hyper=warn` so a quiet shell sees job/stage/task
+  transitions without sqlx debug spew. `with_current_span(true)` is
+  gated behind the json formatter — must be called after `.json()` or
+  it disappears (footgun: silent fall-through to the non-json layer
+  builder). `drive_job` carries `#[tracing::instrument(skip_all,
+  fields(job_id = %job_id))]` plus `tracing::info!` events at the two
+  status transitions so spans actually carry the job_id field SCOPE.md
+  promises.
 - Stage 5: introduces three new modules in `codeless-runtime`:
   `state_machine.rs` (pure transition guards for Job/Stage/Task —
   returns `TransitionError` rather than panicking so callers can map
