@@ -39,8 +39,8 @@ Goal: Adopt the vendored `ai-runner` crate, run real coding runners
       so every job runs in its own checkout, and add cost tracking
       with cap-driven cancellation.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 2)
-Current stage: 3 / 7
+Last tick: 2026-05-12 (stage 3)
+Current stage: 4 / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2b stacks on the same
@@ -64,12 +64,12 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
          the worktree path into `RunnerContext`, and removes the
          worktree on terminal status. Test pins lifecycle (existence
          during `running`, cleanup on `completed`/`failed`/`stopped`).
-- [ ] 3. [M] `ClaudeRunner` wired end-to-end through the bridge.  ← next
+- [x] 3. [M] `ClaudeRunner` wired end-to-end through the bridge.
          Tests use a fake `claude`-style binary on an explicit `PATH`
          (SCOPE.md "Testing strategy") — never the developer's host
          install. Asserts a stage's events land via the bridge in the
          expected order.
-- [ ] 4. [M] `AnthropicRunner` wired end-to-end through the bridge.
+- [ ] 4. [M] `AnthropicRunner` wired end-to-end through the bridge.  ← next
          Test uses `wiremock` (or similar) to fake the Anthropic API
          and asserts cost numbers from the response land on
          `ai-message-complete` envelopes.
@@ -95,6 +95,22 @@ Likely batching (planning hint, not a contract):
 - Tick 6: stage 7 (S) — wrap-up + DONE.
 
 ## Notes
+- Stage 3: `codeless-runtime/src/claude_runner.rs` hosts the
+  `ClaudeRunnerAdapter` that wraps `ai_runner::runners::ClaudeRunner`.
+  It owns two pieces of glue: a tokio mpsc channel paired with a
+  spawned `forward_events` task (translating each upstream event
+  through the adapters-host bridge onto `EventBus`), and the
+  `RunResult::error` → `RunnerOutcome::Failed` outcome mapping. The
+  adapter lives in `codeless-runtime` rather than `adapters-host` to
+  preserve the existing runtime → adapters-host edge — flipping the
+  direction would force adapters-host to depend on runtime for the
+  `Runner` trait, and the cycle would block the workspace from
+  compiling. `tests/claude_runner.rs` exercises the full chain
+  against a hand-written bash script set as `CLAUDE_BINARY`: the
+  fake replays the system / assistant / result NDJSON shape the real
+  CLI uses under `--output-format stream-json`, and the test asserts
+  the bridge produced `JobStarted` → ordered `AiToken` deltas →
+  `AiMessageComplete { cost_cents = 1 }` → `JobCompleted`.
 - Stage 2: `drive_job` now takes `Option<Arc<WorktreeManager>>` and,
   when supplied, provisions a `git worktree` before flipping the job
   to `Running`. The worktree path is persisted on `jobs.worktree_path`
