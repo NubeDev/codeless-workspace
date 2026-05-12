@@ -12,17 +12,6 @@ mock job running end-to-end via SSE — all against a real
 - A directory you don't mind the demo reading from — anything works.
   The instructions below use the workspace root itself.
 
-## One-time token init
-
-```sh
-cargo run -p codeless-cli --bin codeless -- \
-    --db /tmp/codeless-demo.db \
-    serve --init-token
-```
-
-Copy the 32-char hex string it prints. Re-run with `--force` to
-rotate.
-
 ## Seed a demo repo + queued job
 
 ```sh
@@ -49,6 +38,11 @@ cargo run -p codeless-cli --bin codeless -- \
 real backend; without it, the `fs.*` RPC surface returns `Internal`
 and the explorer stays empty. Leave the server running.
 
+Auth: loopback binds (127.0.0.1 / ::1) skip the bearer-token check
+by default — the trust boundary is already same-user same-host
+(SCOPE.md R5). To enforce a token locally for testing, add
+`--require-token` and `codeless serve --init-token` first.
+
 ## Terminal B — UI
 
 ```sh
@@ -56,29 +50,39 @@ pnpm -C codeless/ui/codeless-ui install   # first time only
 pnpm -C codeless/ui/codeless-ui dev
 ```
 
-Vite serves at `http://localhost:5173`. (Vite may pick `5174` if
-`5173` is busy — read its startup line.)
+Vite serves at `http://127.0.0.1:5173`.
 
 ## Browser
 
-Open the Vite URL. The browser shell reads two keys from
-`localStorage`:
+Open `http://127.0.0.1:5173`. The browser shell probes the server
+at `http://127.0.0.1:7777/healthz` once — if it responds, the UI
+uses it. No localStorage to set, no token to paste.
 
-| key                     | value                       |
-|-------------------------|-----------------------------|
-| `codeless-rpc-base-url` | `http://127.0.0.1:7777`     |
-| `codeless-rpc-token`    | the 32-char hex from above  |
+If the server is not running, the UI falls back to its in-memory
+`MockRpcClient` and shows a yellow "mock mode" badge in the corner.
 
-Set them once in DevTools:
+## Non-loopback binds
+
+`codeless serve --bind 0.0.0.0:7777` refuses to start unless you
+pass `--require-token` — the footgun guard so an unauthenticated
+core never ends up reachable from outside the host. With
+`--require-token`:
+
+```sh
+cargo run -p codeless-cli -- --db /tmp/codeless-demo.db serve --init-token
+# copy the token
+
+cargo run -p codeless-cli -- --db /tmp/codeless-demo.db \
+    serve --bind 0.0.0.0:7777 --fs-root "$PWD" --require-token
+```
+
+Then in the browser DevTools:
 
 ```js
-localStorage.setItem("codeless-rpc-base-url", "http://127.0.0.1:7777");
+localStorage.setItem("codeless-rpc-base-url", "http://your-host:7777");
 localStorage.setItem("codeless-rpc-token", "<paste token>");
 location.reload();
 ```
-
-The mock-mode banner in the corner disappears once you're on the
-real transport.
 
 ## What to expect
 

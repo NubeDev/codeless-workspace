@@ -43,15 +43,27 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "smoke: minting bearer token..."
-TOKEN="$("$BIN" --secrets-file "$SECRETS" --db "$DB" serve --init-token)"
+# Two modes:
+#   - default (REQUIRE_TOKEN=0): loopback bind, no token. Exercises
+#     the zero-paste UX the browser depends on. /healthz is reachable
+#     without an Authorization header.
+#   - REQUIRE_TOKEN=1: --require-token flow, asserts bearer auth still
+#     gates requests when explicitly enabled.
+REQUIRE_TOKEN="${REQUIRE_TOKEN:-0}"
+
+TOKEN=""
+SERVE_ARGS=(--bind "$HOST:$PORT" --fs-root "$TMP")
+if [[ "$REQUIRE_TOKEN" == "1" ]]; then
+    echo "smoke: minting bearer token..."
+    TOKEN="$("$BIN" --secrets-file "$SECRETS" --db "$DB" serve --init-token)"
+    SERVE_ARGS+=(--require-token)
+fi
 
 echo "smoke: seeding demo bootstrap..."
 "$BIN" --db "$DB" demo bootstrap
 
-echo "smoke: starting server on http://$HOST:$PORT (fs-root=$TMP)..."
-"$BIN" --secrets-file "$SECRETS" --db "$DB" \
-    serve --bind "$HOST:$PORT" --fs-root "$TMP" >"$SERVE_LOG" 2>&1 &
+echo "smoke: starting server on http://$HOST:$PORT (fs-root=$TMP, require-token=$REQUIRE_TOKEN)..."
+"$BIN" --secrets-file "$SECRETS" --db "$DB" serve "${SERVE_ARGS[@]}" >"$SERVE_LOG" 2>&1 &
 SERVER_PID=$!
 
 # Wait for the listen line so curl never races the bind.
@@ -63,11 +75,18 @@ for _ in $(seq 1 50); do
 done
 
 post() {
-    curl -fsS -X POST \
-        -H "Authorization: Bearer $TOKEN" \
-        -H "content-type: application/json" \
-        -d "$2" \
-        "http://$HOST:$PORT$1"
+    if [[ -n "$TOKEN" ]]; then
+        curl -fsS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "content-type: application/json" \
+            -d "$2" \
+            "http://$HOST:$PORT$1"
+    else
+        curl -fsS -X POST \
+            -H "content-type: application/json" \
+            -d "$2" \
+            "http://$HOST:$PORT$1"
+    fi
 }
 
 echo "smoke: hitting /rpc/list_repos..."

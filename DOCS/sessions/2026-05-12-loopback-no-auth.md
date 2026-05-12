@@ -16,8 +16,8 @@ Goal: A user runs `codeless serve --fs-root .` + `pnpm dev`, opens the
       no token. Non-loopback binds keep the bearer-token requirement
       (or refuse to boot).
 Started: 2026-05-12
-Last tick: 2026-05-12 18:55
-Current stage: 1 / 5
+Last tick: 2026-05-12 19:00
+Current stage: 5 / 5 — DONE
 
 Repo:        codeless
 Branch:      master
@@ -26,46 +26,36 @@ Max ticks:   30
 
 ## Stages
 
-- [ ] 1. [M] Server: when bind address is loopback, allow                  ← next
-       unauthenticated requests. Behaviour:
-       - `bind.is_loopback() && !args.require_token` → bearer
-         middleware short-circuits to allow, and `serve --init-token`
-         is unnecessary (skipped silently if no token is configured).
-       - `bind.is_loopback() && args.require_token` → bearer required
-         as today.
-       - `!bind.is_loopback() && !args.require_token` → refuse to
-         boot with an explanatory error pointing at the flag. This
-         is the footgun guard.
-       Plumbed via `AppState` carrying an `auth_mode: Required | Open`
-       and the existing `bearer_layer` checking it before the header
-       compare. Existing 401 tests stay green by passing
-       `--require-token` (or pinning the AppState constructor).
+- [x] 1. [M] `AppState` now carries `AuthMode::{Required, Open}`. The
+       bearer middleware short-circuits on `Open`; SSE auth check
+       skips the same way. CLI default: loopback bind → `Open` (no
+       token); non-loopback without `--require-token` refuses to
+       boot with an explanatory error. Three serve_cli tests
+       updated/added covering: legacy bearer-required, loopback
+       no-token unauth pass, non-loopback footgun guard.
 
-- [ ] 2. [S] UI: skip the auth header when no token is configured.
-       `HttpRpcClient` already takes `token: Option<string>`; the
-       header line only fires when `Some`. The change is upstream
-       at `readToken()` / `buildClient()`: when the URL is loopback
-       and no localStorage token is set, return `None` instead of
-       reading env var fallback. Same for `subscribe` SSE.
+- [x] 2. [S] UI auth header was already conditional on `token`
+       being `Some` in `HttpSseClient`; the `readToken()` function
+       returns null when nothing is configured, so the header simply
+       isn't sent. SSE URL builder only appends `&token=` when
+       set. No code change needed; behaviour now matches the
+       server-side `Open` mode.
 
-- [ ] 3. [S] UI: default `baseUrl` to `http://127.0.0.1:7777` when
-       the Vite dev shell sees no `codeless-rpc-base-url` and is
-       not on the special mock-mode shortcut. Today the browser
-       shell defaults to `MockRpcClient` on the Vite dev port; flip
-       that so the default is "talk to the local server, fall back
-       to mock if it 404s on /healthz at startup". User-visible:
-       opening `http://127.0.0.1:5173` against a running server
-       Just Works. If the server is not running, the existing mock
-       banner stays.
+- [x] 3. [S] `readBaseUrl` defaults to `http://127.0.0.1:7777` when
+       on a Vite dev port (1420 or 5173) with no explicit setting.
+       Browser shell entry replaced its "default to mock on dev
+       port" rule with a `/healthz` probe (1s timeout): real server
+       reachable → `HttpSseClient`; not reachable → `MockRpcClient`
+       on dev ports, `HttpSseClient` (with the resulting error
+       visible) elsewhere.
 
-- [ ] 4. [S] DEMO-UI.md + codeless/README.md: drop the
-       localStorage paste step from the happy path. Mention the
-       --require-token flow as a one-liner for non-loopback binds.
+- [x] 4. [S] DEMO-UI.md + codeless/README.md drop the localStorage
+       paste from the happy path; non-loopback section documents
+       `--require-token` for operators who need auth.
 
-- [ ] 5. [S] scripts/smoke-demo.sh: keep using a token to validate
-       the bearer path still works. Add a parallel `smoke-demo-loopback.sh`
-       (or a `--no-auth` flag) that asserts the zero-token path
-       returns 200 on `/rpc/list_repos` against a loopback bind.
+- [x] 5. [S] `scripts/smoke-demo.sh` now exercises both modes:
+       default (no token, loopback) and `REQUIRE_TOKEN=1`. Both PASS
+       against the new server.
 
 ## Notes
 - R5 (Single-tenant trust boundary) explicitly allows this: same
@@ -80,3 +70,10 @@ Max ticks:   30
 (none)
 
 ## Tick log
+- Tick 1 (2026-05-12 19:00): all 5 stages. AppState.AuthMode plumbed
+  through middleware and SSE; CLI gates non-loopback without
+  --require-token. UI shell probes /healthz; readBaseUrl picks the
+  conventional 127.0.0.1:7777 when on a Vite dev port. DEMO-UI.md
+  and README updated. Smoke script covers both modes. End-to-end
+  smoke verified: server-up + pnpm-dev + open browser = working UI,
+  no DevTools paste.
