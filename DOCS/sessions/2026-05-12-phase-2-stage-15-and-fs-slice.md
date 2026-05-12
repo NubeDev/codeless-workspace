@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:24
-Current stage: 10 / 12
+Last tick: 2026-05-12 17:27
+Current stage: 11 / 12
 
 Repo:        codeless
 Branch:      master
@@ -130,9 +130,16 @@ Phase B — `fs.*` RPC vertical slice (editor + explorer onto real server):
        `CODELESS_FS_ROOT` wires the host adapter into the runtime
        before construction. Two new routes-test cases cover the
        round-trip + the "no fs configured" 500 case.
-- [ ] 10. [S] `codeless-client::HttpRpcClient`: add the four method
-        callers + tests against `wiremock` (style already established
-        in Phase 3b).
+- [x] 10. [S] `HttpRpcClient` already gained the four fs methods in
+        stage 6. Tests live in `crates/codeless-client/tests/round_trip.rs`
+        and use the same real-server-on-loopback pattern as the other
+        round-trip cases (simpler than wiremock, exercises full HTTP
+        path). `spawn_server_with(|r| r.with_fs(…))` is the new helper
+        so future stages can attach adapters per test. Three cases:
+        write+read+read_dir+stat round-trip, traversal returns
+        InvalidArgument, fs unconfigured returns Internal.
+        `codeless-adapters-host` + `tempfile` added as dev-deps only;
+        `codeless-client`'s normal-build mobile-reach is unaffected (R1).
 - [ ] 11. [M] UI: convert
         `ui/codeless-ui/src/modules/explorer/lib/useFileTree.ts`,
         `lib/contextActions.ts`, and `ExplorerSearch.tsx` to call
@@ -175,6 +182,9 @@ Likely batching (planning hint, not a contract):
   workspaces (out of scope for this loop).
 
 ## Tick log
+- Tick 9 (2026-05-12 17:27): stage 10. HTTP client fs round-trip tests
+  reuse the existing real-server-on-loopback pattern. Phase B Rust
+  side is complete; the UI conversions in stages 11+12 close the loop.
 - Tick 8 (2026-05-12 17:24): stages 8 + 9. Runtime gains optional
   fs adapter; server exposes the four fs routes; CLI's `codeless serve`
   takes `--fs-root` to bind a workspace root. The `Arc<dyn RpcServer>`
