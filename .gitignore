@@ -42,6 +42,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Local agent / IDE state (per-developer, not shared)
+.claude/
+
 # Logs
 *.log
 audit.log*
