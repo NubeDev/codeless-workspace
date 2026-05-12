@@ -34,8 +34,8 @@ Goal: Get a working browser demo of the Terax-derived UI driving
       review row. The CLI demo is implicit — `codeless serve` is
       the demo's backend.
 Started: 2026-05-12
-Last tick: 2026-05-12 (init)
-Current stage: 1 / 5
+Last tick: 2026-05-12 (stage 1 green)
+Current stage: 2 / 5
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 3a stacks on the
@@ -67,7 +67,7 @@ gap is what unlocks the demo.
 ## Stages
 Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
 
-- [ ] 1. [M] codeless-server axum app + REST adapter. Implements   ← next
+- [x] 1. [M] codeless-server axum app + REST adapter. Implements
          POST routes for every `RpcServer` method (add_repo,
          remove_repo, list_repos, submit_job, get_job, list_jobs,
          stop_job, list_reviews, approve_review, comment_review,
@@ -82,7 +82,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          against an in-memory `InProcessRpc`; one SSE smoke test
          that publishes an event mid-stream.
 
-- [ ] 2. [S] `codeless serve` CLI verb. Opens `--db <path>` (or
+- [ ] 2. [S] `codeless serve` CLI verb. Opens `--db <path>` (or   ← next
          `CODELESS_DB`), reads the bearer token from the secrets
          file, binds to `--bind 127.0.0.1:7777` by default, and
          runs the axum server until SIGINT. Adds `--init-token`
@@ -125,6 +125,13 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
 - Tick 5: stage 5 (S) — DONE.
 
 ## Notes
+- Stage 1: `codeless-server` is now a library (`build_router`,
+  `AppState`, `load_bearer_token`, `TOKEN_SECRET_KEY`) plus a stub
+  binary that points at `codeless serve`. Stage 2 wires the binary
+  via the CLI verb. SSE adds an `id:` line per frame from
+  `EventCursor.0` so EventSource populates `Last-Event-ID` for
+  reconnect; the `?since=` extractor also accepts an explicit cursor
+  for fresh-connection resume.
 - `HttpSseClient` already documents the wire shape (bearer header
   on REST; `?token=` query on SSE because EventSource has no
   header API). The server must conform to *that* contract, not
