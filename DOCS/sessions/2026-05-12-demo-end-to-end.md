@@ -26,8 +26,8 @@ Goal: A user with a fresh checkout can run two commands
       and watches it complete via SSE — all against the real
       `codeless-server`, no mocks.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:50
-Current stage: 8 / 8
+Last tick: 2026-05-12 18:50
+Current stage: 8 / 8 — DONE
 
 Repo:        codeless
 Branch:      master
@@ -91,9 +91,10 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
        quick reruns. Smoke-tested against the just-built binary —
        PASS. Cleans up the tempdir + server PID via `trap`.
 
-- [ ] 8. [S] Cleanup pass: any compile/clippy warnings introduced
-       during the loop, drift in `wire.ts.snap` not yet committed,
-       and a final read of `DEMO-UI.md` against an actual demo run.
+- [x] 8. [S] Cleanup pass: clippy + fmt + wire-ts-check all clean.
+       `codeless/README.md` quickstart updated to mention `demo
+       bootstrap` and `--fs-root` (it was silently behind the new
+       flow). Final scripts/smoke-demo.sh run: PASS.
 
 ## Notes
 - The `fs_cwd` method also unlocks the explorer's path bar showing the
@@ -110,6 +111,9 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 (none)
 
 ## Tick log
+- Tick 7 (2026-05-12 18:50): stage 8. Cleanup landed:
+  `codeless/README.md` now references `demo bootstrap` + `--fs-root`.
+  Final smoke-demo.sh PASS. Loop DONE.
 - Tick 6 (2026-05-12 17:50): stages 6 + 7. DEMO-UI.md replaced with
   the post-bootstrap flow; `scripts/smoke-demo.sh` codifies the
   end-to-end happy path and exits 0 on success. Both verified.
