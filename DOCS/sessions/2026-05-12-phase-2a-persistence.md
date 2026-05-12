@@ -38,7 +38,7 @@ Goal: Replace `MemoryStore` with SQLite-backed persistence; persist
       resumability across a simulated core restart.
 Started: 2026-05-12
 Last tick: 2026-05-12 (tick 6 — stages 6+7)
-Current stage: 7 / 9
+Current stage: 8 / 9
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence
@@ -64,9 +64,9 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
          pin "no double-lease" and "expired lease reclaim".
 - [x] 6. [S] Concurrency caps honoured by `lease_next` (global +
          per-repo + per-runner). Config struct fed at construction.
-- [ ] 7. [S] Lease heartbeat helper + a startup-time reaper for stale  ← next
+- [x] 7. [S] Lease heartbeat helper + a startup-time reaper for stale
          leases. Idempotent; safe to call repeatedly.
-- [ ] 8. [M] Resumability: integration test that builds a runtime,
+- [ ] 8. [M] Resumability: integration test that builds a runtime,  ← next
          queues a job + tasks, drops the runtime, rebuilds against
          the same DB file, and continues from where state left off.
 - [ ] 9. [S] Phase 2a wrap-up: CODELESS.md + README quickstart
@@ -82,6 +82,20 @@ Likely batching (planning hint, not a contract):
 - Tick 7: stage 9 (S).
 
 ## Notes
+- Stage 7: `heartbeat.rs` exports `spawn_heartbeat(store, task_id,
+  holder, period, ttl) -> JoinHandle<()>`. The background task sleeps
+  `period`, calls `heartbeat_task` with `now + ttl`, and exits on a
+  `false` result (lease taken by someone else). DB hiccups log via
+  `tracing::warn!` and retry on the next tick — only a confirmed
+  lease loss is terminal. Caller cancels by `JoinHandle::abort`; the
+  test asserts `lease_expires_at` stops moving after abort.
+  `InProcessRpc::with_db` now runs `release_expired_leases(now_ms())`
+  once during construction: idempotent (`UPDATE … WHERE … expires_at
+  < now` is a no-op when nothing matches) and safe to call repeatedly
+  across restarts. The `tests/heartbeat.rs` triple covers: forward
+  progress under live renewal, clean exit on lease theft (release +
+  re-lease by a different holder), and startup-time reclaim of an
+  expired `running` row that survived a previous core death.
 - Stage 6: `QueueConfig { max_global, max_per_repo, max_per_runner }`
   in a new `queue_config.rs`. Default = unlimited. `SqliteStore::
   with_config(pool, caps)` injects the caps; `new(pool)` keeps the
