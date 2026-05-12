@@ -49,24 +49,30 @@ rubix-agent. Until then, codeless carries the patch.
 
 **Marker:** `// codeless-patch-001`
 
-### (future) PATCH-002 — headless `permission_mode` not pluggable
+### PATCH-002 — headless `permission_mode` not pluggable
 
-Not yet landed. Tracked here so the slot is reserved.
+**Files:** `src/types.rs` (new `PermissionMode` enum + `CliCfg`
+field), `src/runners/claude.rs` (forward to `claude-wrapper`),
+`src/lib.rs` (re-export).
 
-The headless claude path in `codeless` cannot make claude actually
-edit files because `claude-wrapper` defaults to interactive permission
-mode. The wrapper exposes `QueryCommand::dangerously_skip_permissions()`
-and `PermissionMode::BypassPermissions`, but `ai-runner::CliCfg` has
-no field to pass either through, so `ai-runner::runners::claude` cannot
-opt into them. Without it the smoke job reads `tool-call Write(…)` →
-`ai-token "I need permission to create the file"` → `job-completed`
-with zero commits.
+**Before:** `claude-wrapper` defaults to interactive permission
+mode — every Write / Bash / Edit pauses for user approval. The
+headless codeless server has no TTY user, so every claude job
+emitted `tool-call Write(…)` followed by an `ai-token "I need
+permission"` and a `job-completed` with zero commits. UI showed
+real-looking tool calls; worktrees stayed empty.
 
-**Planned patch:** add `permission_mode: Option<PermissionMode>` (or a
-serialisable enum mirror) to `CliCfg`; wire `cmd.permission_mode(…)`
-or `cmd.dangerously_skip_permissions()` in the claude runner. Default
-`None` → upstream behaviour unchanged.
+**After:** `CliCfg` gains
+`permission_mode: Option<PermissionMode>`. The enum is
+provider-agnostic (`Default | AcceptEdits | Plan | Bypass`),
+mirroring `claude-wrapper::PermissionMode`. When `Some`, the claude
+runner calls `cmd.permission_mode(...)` on the upstream
+QueryCommand. `None` keeps the wrapper default (interactive),
+preserving the pre-patch behaviour for terminal callers.
+`codeless-runtime/src/claude_runner.rs` always sets
+`Some(Bypass)` — the worktree is the blast radius.
 
-**Upstream:** same field, same semantics — should land cleanly.
+**Upstream:** add the same provider-agnostic enum + field upstream;
+straightforward.
 
-**Marker:** `// codeless-patch-002` (when landed).
+**Marker:** `// codeless-patch-002`

@@ -98,6 +98,33 @@ pub struct CliCfg {
     pub thinking_budget: Option<String>,
     /// Working directory for the spawned subprocess.
     pub work_dir: Option<String>,
+    /// codeless-patch-002: provider-agnostic permission mode for CLI
+    /// wrappers that gate filesystem / shell tool calls behind a
+    /// user-approval prompt. `None` keeps the wrapper's default
+    /// (interactive — fine for terminal use, fatal for headless).
+    /// Headless callers set `Some(PermissionMode::Bypass)` so claude
+    /// actually runs its Write / Bash / Edit tools instead of stopping
+    /// to ask. The enum mirrors `claude-wrapper::PermissionMode` but
+    /// is provider-agnostic so future runners (codex, copilot) can
+    /// adopt the same shape.
+    pub permission_mode: Option<PermissionMode>,
+}
+
+/// codeless-patch-002: pluggable headless-permission mode for CLI
+/// runners. Mirrors `claude-wrapper::PermissionMode` for the claude
+/// path; other runners may interpret a subset. Default `Bypass` is
+/// what headless server-side codeless wants — there is no human to
+/// approve tool calls mid-run, and the worktree is the blast radius.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PermissionMode {
+    /// Wrapper's interactive default. Fine when a human is at the TTY.
+    Default,
+    /// Auto-approve filesystem edits but still prompt for shell.
+    AcceptEdits,
+    /// Plan-only mode; do not execute tools.
+    Plan,
+    /// Bypass every permission check. Required for headless runs.
+    Bypass,
 }
 
 /// Configuration for a REST-transport run (Anthropic, OpenAI cloud APIs).

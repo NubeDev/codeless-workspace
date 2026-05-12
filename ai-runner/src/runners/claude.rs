@@ -172,6 +172,22 @@ impl Runner for ClaudeRunner {
         if let Some(path) = &mcp_tmp_path {
             cmd = cmd.mcp_config(path.to_string_lossy().as_ref());
         }
+        // codeless-patch-002: forward CliCfg::permission_mode to the
+        // claude wrapper. Headless server-side runs set Bypass so
+        // claude actually runs Write / Edit / Bash tool calls instead
+        // of stopping to ask for approval (there is no TTY user to
+        // approve them). Unset → wrapper default (interactive),
+        // matching pre-patch behaviour for terminal callers.
+        if let Some(mode) = cfg.permission_mode {
+            use claude_wrapper::PermissionMode as P;
+            let mapped = match mode {
+                crate::types::PermissionMode::Default => P::Default,
+                crate::types::PermissionMode::AcceptEdits => P::AcceptEdits,
+                crate::types::PermissionMode::Plan => P::Plan,
+                crate::types::PermissionMode::Bypass => P::BypassPermissions,
+            };
+            cmd = cmd.permission_mode(mapped);
+        }
 
         let start = Instant::now();
         // Sender is cloneable; the clone is moved into the sync callback.

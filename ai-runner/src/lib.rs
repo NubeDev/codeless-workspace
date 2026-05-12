@@ -51,6 +51,6 @@ pub use defaults::AiDefaults;
 pub use registry::{ProviderStatus, Registry};
 pub use runner::{OnEvent, Runner};
 pub use types::{
-    CliCfg, Event, EventKind, HistoryMessage, Provider, RestCfg, RunResult, RunnerError,
-    RunnerInput, SessionId, ToolCallEntry, ToolChoice, ToolDef, ToolUse,
+    CliCfg, Event, EventKind, HistoryMessage, PermissionMode, Provider, RestCfg, RunResult,
+    RunnerError, RunnerInput, SessionId, ToolCallEntry, ToolChoice, ToolDef, ToolUse,
 };
