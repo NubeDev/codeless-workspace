@@ -45,7 +45,7 @@ Format: `[ ] N. [S|M|L] title` — complexity tag mandatory.
          so existing tests keep passing. Test uses the fake `claude`
          binary on explicit PATH (per SCOPE testing strategy) and
          asserts events stream through to stdout JSON-line output.
-- [ ] 2. [S] CLI review surface: `codeless review {list,approve,  ← next
+- [!] 2. [S] CLI review surface: `codeless review {list,approve,  ← halted
          comment,stop}` against existing review state machine. No
          new RPC methods — just wire the existing ones to clap
          subcommands.
@@ -98,4 +98,24 @@ Likely batching:
   `ai-token` + `ai-message-complete` + `job-completed` reach stdout.
 
 ## Blockers
-(none)
+
+- Stage 2 misspecified (2026-05-12, tick 2). The stage says "wire
+  the **existing** review RPC methods to clap subcommands. No new
+  RPC methods." But `codeless_rpc::RpcServer` exposes only
+  add_repo/remove_repo/list_repos/submit_job/get_job/list_jobs/
+  stop_job/subscribe — no list_reviews / approve_review /
+  comment_review / stop_review methods exist. The runtime has the
+  review state machine and the `reviews` table, but there is no
+  RPC surface to drive them. R4 ("new CLI commands go through
+  codeless-rpc methods, not directly against the DB") forbids the
+  CLI from bypassing the RPC layer.
+
+  Resolution paths for the human:
+  (a) Rescope stage 2 to M and add the four review RPC methods +
+      the CLI wiring in one stage.
+  (b) Split into a new stage 2a (M, add review RPC methods +
+      runtime impl + tests) followed by stage 2b (S, clap wiring).
+  (c) Skip stage 2 for Phase 2c and defer review-CLI to a later
+      phase.
+
+  Loop halted. No next tick scheduled.
