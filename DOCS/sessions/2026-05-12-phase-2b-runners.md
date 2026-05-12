@@ -39,8 +39,8 @@ Goal: Adopt the vendored `ai-runner` crate, run real coding runners
       so every job runs in its own checkout, and add cost tracking
       with cap-driven cancellation.
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 4)
-Current stage: 5 / 7
+Last tick: 2026-05-12 (stages 5+6)
+Current stage: 7 / 7
 
 Repo:        codeless
 Branch:      feat/phase-2a-persistence  (Phase 2b stacks on the same
@@ -73,16 +73,16 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
          Test uses `wiremock` (or similar) to fake the Anthropic API
          and asserts cost numbers from the response land on
          `ai-message-complete` envelopes.
-- [ ] 5. [S] Cost rollup: incoming `ai-message-complete` events  ← next
+- [x] 5. [S] Cost rollup: incoming `ai-message-complete` events
          increment `jobs.cost_cents` and the affected task's
          `cost_cents` row. Test asserts running totals across a
          multi-message session.
-- [ ] 6. [M] Cost-cap cancellation: `drive_job` watches the running
+- [x] 6. [M] Cost-cap cancellation: `drive_job` watches the running
          cost against `job.cost_cap_cents`; when the cap is reached,
          it cancels the runner via `tokio_util::sync::CancellationToken`
          and emits `job-stopped { reason: cost-cap }`. Wall-clock cap
          lands here too via the same cancellation channel.
-- [ ] 7. [S] Phase 2b wrap-up: CODELESS.md refresh, README quickstart
+- [ ] 7. [S] Phase 2b wrap-up: CODELESS.md refresh, README quickstart  ← next
          showing a non-mock runner invocation, three verify gates
          green, branch ready for PR (Phase 2a + 2b stacked).
 
@@ -95,6 +95,30 @@ Likely batching (planning hint, not a contract):
 - Tick 6: stage 7 (S) — wrap-up + DONE.
 
 ## Notes
+- Stages 5+6 (batched): cost rollup + cap cancellation land together
+  because the cap watcher reads the rolled-up totals. `EventBus::publish`
+  grew a `roll_up_cost` side effect: any `AiMessageComplete` now adds
+  its `cost_cents` to the affected task row and (when the envelope
+  carries a `job_id`) the owning job row, in the same SQLite pool the
+  event row went into. Putting it in the bus means every runner —
+  current or future, real or mock — automatically participates in cost
+  accounting without each opting in. Stage 6 then threaded
+  `cancel: CancellationToken` into `RunnerContext` and spawned a cap
+  watcher inside `drive_job` that races `tokio::time::sleep(wall_clock_cap_ms)`
+  against a bus subscription filtered to the job. The first
+  `AiMessageComplete` whose rollup pushes `jobs.cost_cents` past
+  `cost_cap_cents` triggers a transition to `Stopped` with
+  `StopReason::CostCap`, publishes `JobStopped`, and fires the cancel
+  token; wall-clock works identically with `StopReason::WallClock`. A
+  cap value of `0` is treated as unlimited (matches existing
+  `cost_cap_cents: 0` usage across other tests). `ClaudeRunnerAdapter`
+  and `AnthropicRunnerAdapter` now use `ctx.cancel` directly instead of
+  minting their own token, so cap-driven cancellation reaches the real
+  upstream HTTP client / child process. `MockRunner` ignores the
+  cancel — the driver's terminal-row check after `runner.run` returns
+  catches the watcher-written `Stopped` row and skips the would-be
+  `JobCompleted` publish. Three new tests pin cost-cap, wall-clock,
+  and the `cap=0 means unlimited` invariant.
 - Stage 4: `codeless-runtime/src/anthropic_runner.rs` ships an
   `AnthropicRunnerAdapter` symmetric to the Claude one — same
   forward-events plumbing, same `RunResult::error` → `Failed`
