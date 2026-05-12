@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 16:51
-Current stage: 1 / 12
+Last tick: 2026-05-12 17:02
+Current stage: 2 / 12
 
 Repo:        codeless
 Branch:      master
@@ -65,13 +65,13 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 
 Phase A — Specta codegen covers RPC methods (replaces hand-mirrored TS):
 
-- [ ] 1. [M] Specta-register all `codeless-rpc::methods` arg/result    ← next
+- [x] 1. [M] Specta-register all `codeless-rpc::methods` arg/result
        structs (+ subscribe `EventFilter` / `Since`); extend
        `wire.ts.snap` to include them. Add `specta` dependency to
        `codeless-rpc` with the same pinned versions as
        `codeless-types`; keep the crate I/O-free so mobile-reach is
        preserved.
-- [ ] 2. [S] Add a codegen binary (`cargo run -p codeless-types --bin
+- [ ] 2. [S] Add a codegen binary (`cargo run -p codeless-types --bin   ← next
        wire-ts` or similar) that writes the same TypeScript the
        snapshot test renders, to a deterministic path consumed by the
        UI build (e.g. `ui/codeless-ui/src/lib/rpc/generated/wire.ts`).
@@ -149,6 +149,14 @@ Likely batching (planning hint, not a contract):
 - `fs_*` does not need a worktree — it operates on the configured server
   root. Worktree-scoped fs lands later, when the editor surfaces job
   workspaces (out of scope for this loop).
+
+## Tick log
+- Tick 1 (2026-05-12 17:02): stage 1. Added `specta` to `codeless-rpc`,
+  derived `Type` on all method arg/result structs + `EventFilter`. Kept
+  the snapshot per-crate (new `codeless-rpc/tests/wire-rpc.ts.snap`)
+  rather than cross-crate to avoid a `codeless-types -> codeless-rpc`
+  dev-dep cycle. Both snapshots will be concatenated by the stage 2
+  codegen binary.
 
 ## Blockers
 (none)
