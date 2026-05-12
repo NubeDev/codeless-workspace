@@ -42,8 +42,8 @@ Goal: Stand up the `codeless-workspace` multi-repo workspace as a public
       `ai-runner`, fill in `mani.yaml`, stub the Cargo workspace inside
       `codeless/`, and land `CLAUDE.md` — leaving Phase 1 ready to start.
 Started: 2026-05-12
-Last tick: 2026-05-12 09:46 (Tick D)
-Current stage: 7 / 12
+Last tick: 2026-05-12 09:55 (Tick E)
+Current stage: 8 / 12
 
 Workspace root: /home/user/code/rust/codeless-workspace
 mani binary:    ./bin/mani  (bundled, statically linked — use this, not
@@ -147,26 +147,16 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
         `.git`, so cross-repo git walks the parent chain and reports
         workspace state. Workaround: `--projects codeless` for ticks.
 
-- [ ] 7. [M] Create `codeless-workspace/CLAUDE.md` at the workspace ← next
-        root (not inside `codeless/`). Capture the rules an agent must
-        follow when touching code anywhere in this workspace, distilled
-        from `DOCS/SCOPE.md`:
-          - Crate dependency direction (mobile depends only on
-            `types + client`; the iOS-safe / Android-safe columns in
-            the crate table are enforceable by `cargo check`).
-          - No `@tauri-apps/api/core` imports in UI modules — only
-            `RpcClient`.
-          - No `Foo.web.tsx` / `Foo.mobile.tsx` per-shell files
-            (Rule 5: one UI framework, forever).
-          - Single responsibility per file.
-          - Comments: explain *why*, no emojis, no task-status
-            comments, no decorative banners.
-          - Mani-only for commit/push from JOB-LOOP ticks; use the
-            bundled `./bin/mani`.
-        Cross-link `DOCS/SCOPE.md`, `DOCS/JOB-LOOP.md`,
-        `DOCS/MANI.md`. Commit on workspace repo.
+- [x] 7. [M] `CLAUDE.md` created at workspace root. Five hard rules
+        (R1 crate dep direction, R2 single transport interface, R3 one
+        UI framework forever, R4 SQLite source of truth, R5 single-
+        tenant). File-level rules (single responsibility, comment
+        discipline, no drive-by refactors, no half-finished impls).
+        JOB-LOOP rules summarised. Cross-links to SCOPE, JOB-LOOP,
+        JOB-LOOP-KICKOFF, MANI, sessions, and (forward reference)
+        codeless/CODELESS.md.
 
-- [ ] 8. [M] Inside `codeless/`, stand up the Cargo workspace at the
+- [ ] 8. [M] Inside `codeless/`, stand up the Cargo workspace at the ← next
         repo root. Outer `Cargo.toml`:
         ```toml
         [workspace]
@@ -282,6 +272,10 @@ Expected total: ~8 ticks. If it stretches past 12, halt and reassess.
   `NubeDev / ap@nube-io.com`. Seed commit landed (`init: codeless-
   workspace seed (DOCS, vendored mani binary, vendored ai-runner,
   bootstrap session doc)`).
+- **Tick E (2026-05-12 09:55)** — stage 7 done. CLAUDE.md is the
+  agent-facing rules contract; SCOPE.md remains the source of truth
+  for design decisions.
+
 - **Tick D (2026-05-12 09:46)** — stage 6 done. Now using
   `./bin/mani --config mani.yaml run <task> --projects codeless` for
   all subsequent commits.
