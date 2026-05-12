@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:16
-Current stage: 5 / 12
+Last tick: 2026-05-12 17:12
+Current stage: 6 / 12
 
 Repo:        codeless
 Branch:      master
@@ -100,11 +100,10 @@ Phase A — Specta codegen covers RPC methods (replaces hand-mirrored TS):
 
 Phase B — `fs.*` RPC vertical slice (editor + explorer onto real server):
 
-- [ ] 5. [S] `codeless-types`: add `FsEntry`, `FsEntryKind`, plus
-       `FsReadDirArgs`, `FsReadDirResult`, `FsReadFileArgs`,
-       `FsReadFileResult`, `FsWriteFileArgs`, `FsStatArgs`,
-       `FsStatResult`. Pure data, serde + specta. Register in the
-       snapshot.
+- [x] 5. [S] `codeless-types::fs` added with `FsEntry` + `FsEntryKind`.
+       Method-arg types stay in `codeless-rpc::methods` (stage 6) to
+       keep the types crate focused on pure-domain shapes; that mirrors
+       how `RemoveRepoArgs`/`GetJobArgs` live in `-rpc`, not `-types`.
 - [ ] 6. [S] `codeless-rpc::methods`: add the matching method-arg
        wrappers; extend `RpcServer` trait with `fs_read_dir`,
        `fs_read_file`, `fs_write_file`, `fs_stat`. Wire-ts snapshot
