@@ -98,6 +98,100 @@ location.reload();
   wired; `--enable-claude` / `--enable-anthropic` on `codeless serve`
   light up the real ones.
 
+## Real runner: Claude Code
+
+The mock runner is enough to drive the UI end-to-end without external
+dependencies. To watch a real coding agent edit files, swap it for
+Claude Code.
+
+### Prereqs
+
+- The `claude` binary on `PATH`, or its path in the `CLAUDE_BINARY`
+  env var. Codeless also discovers it under the usual install
+  locations (`~/.local/bin`, `~/.bun/bin`, the VS Code / Cursor /
+  Windsurf extension dirs, `/opt/homebrew/bin`, `/usr/local/bin`).
+- `claude auth login` run once on this host. The wrapper has its own
+  credential cache; Codeless never sees the token.
+
+`codeless-server` probes the binary at boot and surfaces the result
+on `GET /server/info` (and in the UI's settings → Models → "Coding
+agents" block). If the probe reports "Not installed" or "Not signed
+in", fix that before submitting a job.
+
+### Serve with the runner enabled
+
+```sh
+cargo run -p codeless-cli --bin codeless -- \
+    --db /tmp/codeless-demo.db \
+    serve \
+    --bind 127.0.0.1:7777 \
+    --fs-root "$PWD" \
+    --enable-claude
+```
+
+`--worktree-root` is not required: when `--fs-root` is set and
+`--worktree-root` is not, the server defaults to
+`<fs-root>/.codeless/worktrees`. Per-job worktrees live at
+`<root>/job-<job_id>` on a fresh branch `codeless/job-<job_id>`. The
+worktree directory is reaped on job completion; the durable record
+is the branch on the source repo.
+
+The `codeless` repo's `.gitignore` already excludes
+`.codeless/worktrees/`. If you point `--fs-root` at a different
+checkout, add the same line there.
+
+### Expected timeline
+
+Submit a job in the UI with `runner = claude`. Compared to a mock
+run, the timeline grows two extra event kinds:
+
+- `tool-call` events arrive whenever Claude reaches for a tool (file
+  Read, Write, Edit, Bash, etc.) — one per call.
+- `ai-token` deltas stream the assistant's reply chunks. The mock
+  runner emits a few of these for visual parity; a real run emits
+  them densely over the run's lifetime.
+
+The terminal sequence on success is `task-started → tool-call*
+→ ai-token* → ai-message-complete → task-completed → job-completed`,
+with `tool-call` and `ai-token` events interleaved.
+
+### Known limitation — headless tool permissions
+
+`claude-wrapper` defaults to interactive permission mode: tool calls
+that touch the filesystem or shell are blocked pending user approval,
+and a headless server-side run has no one to approve them. In that
+mode you will see the `tool-call` events fire, immediately followed by
+an `ai-token` asking the user for permission, and the job completing
+without any edits landing on the branch.
+
+The fix needs `claude-wrapper`'s
+`QueryCommand::dangerously_skip_permissions()` /
+`PermissionMode::BypassPermissions` plumbed through
+`ai-runner::CliCfg`. That work is upstream (see the workspace's
+[`ai-runner/`](./ai-runner/) directory; per `CLAUDE.md` the inner
+tree is treated as read-only and updates flow from the rubix-agent
+workspace).
+
+Until that lands, the real-Claude path works for surfaces that do
+not require tool execution — e.g. read-only repo Q&A — and the
+`scripts/smoke-claude-demo.sh` regression net asserts every step up
+to the permission gate. The mock runner remains the canonical way to
+drive the UI end-to-end.
+
+### Smoke-test the Claude path
+
+```sh
+codeless-workspace/scripts/smoke-claude-demo.sh
+```
+
+Bootstraps a fresh `/tmp` repo, starts `codeless serve --enable-claude`,
+asserts `/server/info` reports the claude runner with the implicit
+worktree-root default, submits a job, polls `get_job` to terminal,
+and finally checks that `hello.txt` is committed on the job branch.
+Today the final assertion fails because of the permission gate
+documented above; the script's value is in catching regressions to
+the *plumbing* surface that already works.
+
 ## Smoke test
 
 A scripted version of the above for catching regressions in CI or

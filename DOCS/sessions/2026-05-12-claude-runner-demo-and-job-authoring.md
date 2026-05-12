@@ -21,8 +21,8 @@ Goal in one sentence:
   can refine (and optionally have an AI scope) before submitting.
 
 Started: 2026-05-12
-Last tick: 2026-05-12 (stage 6 blocked, [!])
-Current stage: 6 / 13 ← blocker; see Blockers section
+Last tick: 2026-05-12 (stage 7 landed; stage 6 still [!])
+Current stage: 8 / 13 ← Phase 1 closed pending the stage 6 unblock
 
 Repo:        codeless
 Branch:      master
@@ -126,7 +126,7 @@ job either runs to completion or hits the review gate.
        Capture rough notes for the demo doc and any rough edges
        hit. This is the dogfood proof.
 
-- [ ] 7. [S] DEMO-UI.md grows a "Real runner: Claude Code" section
+- [x] 7. [S] DEMO-UI.md grows a "Real runner: Claude Code" section
        with the prereqs (`claude` installed, `claude auth login`
        run once), the additional `serve` flags, and the
        expected timeline shape (`tool-call` events appearing
@@ -154,7 +154,7 @@ a real authoring surface that grows with the job. The user can:
   draft pre-populated with the previous outcome so iterating on the
   same task is one click.
 
-- [ ] 8. [M] DB + types: `job_drafts` table (id, repo_id, title,
+- [ ] 8. [M] DB + types: `job_drafts` table (id, repo_id, title,            ← next
        prompt, stages_json, created_at, updated_at). New `Draft` /
        `DraftStage` types in `codeless-types`, RPC methods
        `list_drafts`, `get_draft`, `save_draft`, `delete_draft`,
@@ -244,6 +244,12 @@ a real authoring surface that grows with the job. The user can:
   every step *up to* the tool-permission gate.
 
 ## Tick log
+- stage 7: DEMO-UI.md gains a "Real runner: Claude Code" section
+  covering binary discovery + `claude auth login` prereqs, the
+  `--enable-claude` flag, the implicit `<fs-root>/.codeless/worktrees`
+  default, the expected `tool-call` + `ai-token` timeline shape, and
+  the headless-permission gate captured in stage 6. Phase 1 is closed
+  on documentation grounds; the dogfood proof is still blocked.
 - stage 6: HALT [!]. Built `scripts/smoke-claude-demo.sh` that boots
   serve --enable-claude against a fresh /tmp/demo-target, asserts
   /server/info reports the implicit `<fs-root>/.codeless/worktrees`
