@@ -26,8 +26,8 @@ Goal: A user with a fresh checkout can run two commands
       and watches it complete via SSE — all against the real
       `codeless-server`, no mocks.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:35
-Current stage: 1 / 8
+Last tick: 2026-05-12 17:36
+Current stage: 2 / 8
 
 Repo:        codeless
 Branch:      master
@@ -38,13 +38,12 @@ Max ticks:   30
 ## Stages
 Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 
-- [ ] 1. [S] Add `fs_cwd` RPC method — returns the configured server   ← next
-       root as a string. Rust side: `codeless-types::FsCwdResult`,
-       `codeless-rpc::methods::FsCwdResult` (UnixMillis-style result
-       wrapping `{ path }`), trait method `fs_cwd(&self) -> RpcResult<
-       FsCwdResult>`, runtime impl reads `HostFs::root()`, server
-       route, http client method, snapshots regenerated. The UI uses
-       this to pick an explorer root when no terminal cwd is set.
+- [x] 1. [S] `fs_cwd` lives in `codeless-rpc::methods::FsCwdResult`,
+       trait method `fs_cwd(&self) -> RpcResult<FsCwdResult>`. Runtime
+       reads `HostFs::root()`; without `with_fs` it returns the same
+       `Internal("fs.* not available")` as the other fs methods.
+       Server exposes `/rpc/fs_cwd`; http client wraps it. Both
+       snapshots regenerated.
 
 - [ ] 2. [S] UI: explorer + paths adapter — when `usePaths().home`
        returns null AND an HTTP transport is in use, call `fs_cwd`
@@ -106,3 +105,5 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
 (none)
 
 ## Tick log
+- Tick 1 (2026-05-12 17:36): stage 1. `fs_cwd` end-to-end (types,
+  trait, runtime, server, client, snapshots).
