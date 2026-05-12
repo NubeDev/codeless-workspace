@@ -42,8 +42,8 @@ Goal: Stand up the `codeless-workspace` multi-repo workspace as a public
       `ai-runner`, fill in `mani.yaml`, stub the Cargo workspace inside
       `codeless/`, and land `CLAUDE.md` — leaving Phase 1 ready to start.
 Started: 2026-05-12
-Last tick: 2026-05-12 10:23 (Tick G)
-Current stage: 12 / 12
+Last tick: 2026-05-12 10:30 (Tick H — DONE)
+Current stage: 12 / 12 [DONE]
 
 Workspace root: /home/user/code/rust/codeless-workspace
 mani binary:    ./bin/mani  (bundled, statically linked — use this, not
@@ -219,19 +219,33 @@ Format: `[ ] N. [S|M|L] title` — complexity tag is mandatory.
         positional `KEY=value`-after-task-name (discovered during
         Tick F when shell-prefix didn't pass through).
 
-- [ ] 12. [S] Final verify pass:                                      ← next
-          - `git -C /home/user/code/rust/codeless-workspace status` clean,
-            ahead-by-0 on `master`.
-          - `git -C codeless status` clean, branch
-            `feat/bootstrap-cargo-workspace` pushed and ahead-by-0.
+- [x] 12. [S] Final verify pass — all green.
+          - Workspace clean, ahead-by-0 on `master`.
+          - Inner `codeless` clean on `feat/bootstrap-cargo-workspace`,
+            ahead-by-0.
           - `./bin/mani --config mani.yaml run status --all` shows
-            both repos green.
-          - `cd codeless && cargo check --workspace` exits 0.
-          - `gh repo view NubeDev/codeless-workspace` confirms the
-            public repo exists.
-        Append a "DONE notes" Notes line summarising what's next
-        (Phase 1 proper — the worked example in
-        `DOCS/JOB-LOOP-KICKOFF.template.md`).
+            both projects with clean trackers.
+          - `cargo check --workspace` exits 0.
+          - `gh repo view NubeDev/codeless-workspace` confirms public.
+
+# DONE
+
+All 12 stages complete. Bootstrap loop is finished — `codeless-
+workspace` is a public GitHub repo with `mani.yaml`, bundled mani,
+CLAUDE.md, all design docs (SCOPE.md, JOB-LOOP.md, JOB-LOOP-KICKOFF.
+template.md, MANI.md). The inner `codeless` repo has a Cargo
+workspace with 8 stub crates on `feat/bootstrap-cargo-workspace`.
+
+**Next**: start Phase 1 proper. Use the worked example in
+[`DOCS/JOB-LOOP-KICKOFF.template.md`](../JOB-LOOP-KICKOFF.template.md)
+"Worked example — Phase 1 crate skeleton kickoff" (~11 stages).
+Suggested status file:
+`DOCS/sessions/2026-05-12-phase-1-crate-skeleton.md`.
+
+The `feat/bootstrap-cargo-workspace` branch can either be merged to
+`master` now (open PR via `gh pr create -B master`) or left open to
+absorb Phase 1's commits. The session-doc model favours the latter:
+one branch per loop run.
 
 ## Likely batching (planning hint, not a contract)
 
@@ -286,6 +300,10 @@ Expected total: ~8 ticks. If it stretches past 12, halt and reassess.
   `NubeDev / ap@nube-io.com`. Seed commit landed (`init: codeless-
   workspace seed (DOCS, vendored mani binary, vendored ai-runner,
   bootstrap session doc)`).
+- **Tick H (2026-05-12 10:30) — DONE** — stage 12 verify pass, all
+  green. Loop terminates here; no successor scheduled. 8 ticks
+  total (A-H), which matches the planning hint exactly.
+
 - **Tick G (2026-05-12 10:23)** — stages 10 + 11 done. Inner
   `CODELESS.md` written. Loop docs (JOB-LOOP.md, JOB-LOOP-KICKOFF.
   template.md) updated for the new workspace path. Mani commands
