@@ -192,6 +192,67 @@ Today the final assertion fails because of the permission gate
 documented above; the script's value is in catching regressions to
 the *plumbing* surface that already works.
 
+## What landed in the UX grind
+
+The Phase 3 "make Codeless feel like a real tool to drive" pass —
+11 small landings on master that turn the browser MVP from a wire
+demo into something you'd actually leave running.
+
+- **ux-1 — worktrees survive job completion.** A finished job's
+  working tree stays on disk so you can `cd` into it and inspect.
+  The branch was always durable; this makes the tree durable too.
+  SCOPE-compliant default; explicit GC lives at ux-10.
+- **ux-2 — job header reads like a debug card.** Real branch,
+  preserved worktree path, and the repo's source checkout are
+  surfaced together in the detail panel. No more guessing which
+  branch a job actually ran on.
+- **ux-3 — tool calls pretty-print their args.** The timeline shows
+  `Bash(git status)`, `Read(src/main.rs)`, `Write(people.csv)`
+  instead of empty parens. Hovering still reveals the full JSON.
+- **ux-4 — "Files changed" tab on job detail.** A `job_diff` RPC
+  computes the diff between the job branch and the repo's default
+  branch, surfaced as a per-file list with adds/deletes counts.
+- **ux-5 — `SubmitJobArgs.branch` is honoured.** The wizard's
+  branch field is no longer a lie; an empty value falls back to the
+  canonical `codeless/job-<id>`. The runtime writes the actually-
+  created branch back to the row so the UI never shows a name
+  `git` can't resolve. `JobDetail`'s `canonicalBranch()` helper
+  went away.
+- **ux-6 — `demo bootstrap` detects HEAD.** Probes the repo's
+  current HEAD branch with `git symbolic-ref --short HEAD` before
+  falling back to `main`. Bootstrapping in a `master`-init'd repo
+  no longer silently breaks `job_diff` with `base ref 'main' not
+  found`.
+- **ux-7 — `rerun_job` RPC.** Clones a previous job's prompt,
+  runner, caps, and repo with a fresh `JobId` and queues it; the
+  source job is untouched. JobDetail grew a "re-run" button next
+  to the cost cell that navigates to the new job on success.
+- **ux-8 — timeline grouped by stage and task.** Events fall into
+  per-stage cards; per-task blocks coalesce `ai-token` deltas into
+  a single rendered "Assistant output" markdown bubble bound to
+  its matching `ai-message-complete` cost line. Tool-calls become
+  sub-rows of their owning task. A "raw events" toggle drops back
+  to the flat ordered stream for debugging.
+- **ux-9 — scannable dashboard rows.** Each row carries the
+  status pill, a runner badge, the branch, a relative age
+  ("3m ago"), the cost, and an italicised one-line activity chip
+  projected live from the events stream ("Bash(git status)",
+  "verify failed (exit 1)"). One 30s clock on the dashboard
+  drives every row's age.
+- **ux-10 — `gc_worktrees` RPC + dashboard sweep button.** After
+  ux-1, worktrees pile up. The new RPC takes
+  `{ older_than_ms, job_ids, dry_run }` and returns per-entry
+  size + path + removal status. A "GC worktrees" button on the
+  dashboard header opens a confirm modal that **always loads a
+  dry-run preview first**: an accidental click can't delete
+  anything until the user sees the size and path list. Default
+  filter is 7 days.
+- **ux-11 — "Open in terminal" affordance.** The worktree row
+  on JobDetail offers a "cd" copy button next to "copy" that puts
+  a shell-ready `cd '<path>' && git status` on the clipboard.
+  Single-quoted so paths with spaces paste safely. No real
+  terminal is opened — desktop / browser parity (Rule 3).
+
 ## Smoke test
 
 A scripted version of the above for catching regressions in CI or
