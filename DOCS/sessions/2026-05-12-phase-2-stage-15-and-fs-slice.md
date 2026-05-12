@@ -50,8 +50,8 @@ Goal: Land the deferred Phase 2 UI Stage 15 (specta covers RPC method
       CI snapshot check) then ship the `fs.*` RPC vertical slice so
       the Terax file explorer and editor talk to a real `codeless-server`.
 Started: 2026-05-12
-Last tick: 2026-05-12 17:27
-Current stage: 11 / 12
+Last tick: 2026-05-12 17:30
+Current stage: 12 / 12 — DONE
 
 Repo:        codeless
 Branch:      master
@@ -140,17 +140,31 @@ Phase B — `fs.*` RPC vertical slice (editor + explorer onto real server):
         InvalidArgument, fs unconfigured returns Internal.
         `codeless-adapters-host` + `tempfile` added as dev-deps only;
         `codeless-client`'s normal-build mobile-reach is unaffected (R1).
-- [ ] 11. [M] UI: convert
-        `ui/codeless-ui/src/modules/explorer/lib/useFileTree.ts`,
-        `lib/contextActions.ts`, and `ExplorerSearch.tsx` to call
-        `useRpc()` instead of `@tauri-apps/*`. Mock client gets a
-        small in-memory tree for tests/dev. Zero `@tauri-apps/*`
-        imports remain in `modules/explorer/`.
-- [ ] 12. [M] UI: convert
-        `ui/codeless-ui/src/modules/editor/lib/useDocument.ts` and
-        `NewEditorDialog.tsx` to call `useRpc()` for `fs.read_file` /
-        `fs.write_file`. Zero `@tauri-apps/*` imports remain in
-        `modules/editor/`.
+- [x] 11. [M] Explorer was already on `useRpc()` from a prior pass
+        (no `@tauri-apps/*` imports under `modules/explorer/`). The
+        live-server read path (`fs_read_dir`) now works against the
+        real backend; create/rename/delete/search keep calling
+        methods the Rust side does not yet expose, so those land in
+        the explorer only against the mock client. Tracked as
+        stage 13 (future): add the missing fs methods (`fs_create_*`,
+        `fs_move`, `fs_delete`, `fs_search`, `fs_glob`) on the Rust
+        side so the full explorer surface works against `codeless-server`.
+- [x] 12. [M] Editor was also already on `useRpc()`. `useDocument`
+        adapted to the minimal `{ content }` shape from
+        `fs_read_file` (the `binary`/`toolarge` DocumentState legs
+        stay so they're ready when those variants arrive on the Rust
+        side). Save path uses `fs_write_file({ path, content })`;
+        `create_parents` is still sent and silently ignored by the
+        server's serde-ignore-unknown-fields default. Zero
+        `@tauri-apps/*` imports remain in `modules/editor/`.
+
+## Future work (not in this loop's scope)
+
+- Expose `fs_create_file`, `fs_create_dir`, `fs_move`, `fs_delete`,
+  `fs_search`, `fs_glob`, `fs_cwd` on the Rust side so the explorer's
+  full surface works against `codeless-server`. Today these only work
+  against the mock client. A separate loop run, with its own session
+  doc, picks this up.
 
 Likely batching (planning hint, not a contract):
 - Tick 1: stage 1 (M).
@@ -182,6 +196,17 @@ Likely batching (planning hint, not a contract):
   workspaces (out of scope for this loop).
 
 ## Tick log
+- Tick 10 (2026-05-12 17:30): stages 11 + 12. Found that the Terax
+  explorer + editor already used `useRpc()` from an earlier pass —
+  no `@tauri-apps/*` imports under either module. The remaining work
+  was a wire-shape mismatch in `useDocument`: it pattern-matched on
+  the old `{ kind: "text" | "binary" | "toolarge" }` tagged union
+  while the Rust server returns minimal `{ content }`. Adapted the
+  read parse to the new shape; left the `binary`/`toolarge` legs of
+  DocumentState in place since they're scaffolding for when those
+  variants land on the Rust side. Added stage 13 to track the
+  follow-up Rust methods (create/move/delete/search) the explorer
+  needs to be fully live-backend.
 - Tick 9 (2026-05-12 17:27): stage 10. HTTP client fs round-trip tests
   reuse the existing real-server-on-loopback pattern. Phase B Rust
   side is complete; the UI conversions in stages 11+12 close the loop.
