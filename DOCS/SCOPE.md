@@ -10,7 +10,7 @@ Two constraints drive every architectural decision below.
 
 **Constraint 1 — many concurrent jobs across many repos from a browser.** One person, a core running on a remote machine (home box, VPS, Mac mini), the browser as a thin view. This rules out a tab-resident AI loop and forces the runtime into the Rust core.
 
-**Constraint 2 — a coder loop must run unsupervised for hours.** A developer starts a long job before bed and wakes up to commits on a branch, a `handover.md` showing what landed and what halted, and a few `REVIEW` stages at the points where the loop decided it needed a human. This is the difference between "agent that codes" and "agent that codes for as long as it takes". It forces *fresh session per session* — every session is a disposable agent that re-reads the handover from disk and the git history from the remote, then exits. Anything in-memory between sessions is dead by morning. See [`LOOP-CODER.md`](./LOOP-CODER.md) for the full design intent, and [`JOB-MODEL.md`](./JOB-MODEL.md) for the user-facing handover/log contract.
+**Constraint 2 — a coder loop must run unsupervised for hours.** A developer starts a long job before bed and wakes up to commits on a branch, a `handover.md` showing what landed and what halted, and a few `REVIEW` stages at the points where the loop decided it needed a human. This is the difference between "agent that codes" and "agent that codes for as long as it takes". It forces *fresh session per session* — every session is a disposable agent that re-reads the handover from disk and the git history from the remote, then exits. Anything in-memory between sessions is dead by morning. See [`LOOP-CODER.md`](./LOOP-CODER.md) for the full design intent, and [`JOB-MODEL.md`](./JOB-MODEL.md) for the user-facing handover/log contract. The current build-out of this constraint — handover read/write, re-run with feedback, verify-fail policy, loop-level cost ceiling, and (last) goal-to-stages planning — is tracked as the **autonomy track (A1–A5)** in [`PROGRESS.md` "Next steps"](./PROGRESS.md#next-steps).
 
 Constraint 1 alone is enough to rule out the inherited Terax model. In Terax today the AI loop runs *inside the webview* using the Vercel AI SDK in TypeScript, with each user's API key going from the browser/webview straight to OpenAI/Anthropic/etc. That model is fine for a single-user desktop tool with one job at a time. It does not work for what we want:
 
@@ -330,8 +330,16 @@ load-bearing for the long-run constraint:
    the failure mode this prevents.
 2. **Push after every stage, never defer.** A session that commits
    but doesn't push leaves the next session reading a stale remote.
-3. **A failed verify halts the loop.** No retry, no skip-and-continue.
-   The failure goes into `handover.md` so the user sees it on wake.
+3. **A failed verify is operator-visible.** The default behaviour is
+   *halt the stage* — no silent retry, no skip-and-continue — and
+   write the failure into `handover.md` so the user sees it on wake.
+   Per-stage policy may opt into a *bounded* retry-with-feedback
+   (capped attempts, counted against the job's cost + wall-clock
+   caps, and the verify output is folded into the next session's
+   prompt) or escalation to a `Review` row. Unbounded retry, silent
+   skip, and any behaviour the operator can't see in the morning
+   review queue all stay forbidden. The autonomy roadmap that lands
+   this lives in [`PROGRESS.md` "Next steps" A3](./PROGRESS.md#a3--verify-fail-policy-agent-decides-retry-vs-escalate-m).
 
 ## Concurrency model — scheduler + queue + caps
 
@@ -742,9 +750,15 @@ gRPC is **not** in scope for the MVP. It can come later for runner-to-core comms
 
 Codeless exposes the **same operations** as the SSE+REST+WS surface through an MCP server, so any MCP-capable agent (Claude Code, Codex, a future bespoke automation) can drive jobs without a UI. This is a load-bearing requirement: "drive Codeless from an agent over MCP, with no UI running" is one of the product's primary use cases. The UI is never allowed to be the only way to do anything.
 
+The concrete implementation plan — which crates are involved, the
+`codeless-tools-jobs` translator layer, slice-by-slice rollout — lives
+in [`AGENT-CONTROL-PLANE.md`](./AGENT-CONTROL-PLANE.md). Read that
+alongside this section before doing the work; this section is the
+contract, that doc is the build plan.
+
 ### Transports
 
-- **stdio MCP** — the agent spawns `codeless mcp` (or `codeless-mcp`) as a child process. This is the default for local single-user dev and matches Claude Code's expectation for MCP servers. No bearer token: same in-process trust model as the local CLI (R5 / "Local CLI bypasses auth"). The runtime is in-process; the worktree manager and runners are the same instances the CLI would use.
+- **stdio MCP** — the agent spawns `codeless mcp` (or `codeless-mcp`) as a child process. This is the default for local single-user dev and matches Claude Code's expectation for MCP servers. No bearer token: same trust model as the local CLI (R5 / "Local CLI bypasses auth"). The MCP child does **not** carry its own runtime — it is an `RpcClient` translator that connects back to the long-running `codeless-server` daemon, so every job it submits, polls, or cancels lives on the same SQLite and event bus as the browser UI and CLI. Multiple agents (Claude Code, Codex, Copilot) sharing a single daemon is the whole point of this transport, and an in-process runtime per child would defeat it.
 - **Streamable HTTP MCP** — `codeless mcp --listen :PORT` (or `codeless-mcp --listen`) for a long-running hosted core that multiple agents can attach to. Reuses the same bearer token as `codeless-server`. The MCP HTTP server is the same axum process or a sibling — the choice is an implementation detail, but they share the auth middleware.
 
 ### Tools (each mirrors a method on the RPC trait)

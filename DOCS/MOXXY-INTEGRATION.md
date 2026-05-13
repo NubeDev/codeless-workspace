@@ -7,6 +7,14 @@ not viable. The successor proposal ports specific files from moxxy
 into a new codeless-owned crate (`codeless-tools`) rather than
 vendoring `moxxy-runtime` as a crate.
 
+**See also:** the MCP / agent-driven half of what this proposal would
+have covered is now [`AGENT-CONTROL-PLANE.md`](./AGENT-CONTROL-PLANE.md)
+— the concrete plan for exposing job operations (create / debug /
+status / control) through MCP, REST, and CLI against the existing
+`codeless-server` daemon, with no in-process runtime per agent. Anyone
+who came here looking for "how do Claude / Codex / Copilot drive
+codeless jobs?" should read that doc.
+
 This doc is kept, not deleted, because the audit findings are useful
 context: anyone asking "why didn't we just fork moxxy?" should read
 the [Phase 0 audit](#phase-0-audit-findings) before re-opening the
