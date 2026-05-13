@@ -47,6 +47,9 @@ pub enum Provider {
     Claude,
     /// OpenAI Codex CLI — reads `OPENAI_API_KEY` from environment.
     Codex,
+    /// GitHub Copilot CLI — auth managed by the `copilot` binary itself
+    /// (GitHub device flow, state in `~/.copilot/`).
+    Copilot,
     /// Anthropic cloud REST API — key via `RestCfg::api_key` or `ANTHROPIC_API_KEY`.
     Anthropic,
     /// OpenAI cloud REST API — key via `RestCfg::api_key` or `OPENAI_API_KEY`.
@@ -58,6 +61,7 @@ impl std::fmt::Display for Provider {
         let s = match self {
             Provider::Claude => "claude",
             Provider::Codex => "codex",
+            Provider::Copilot => "copilot",
             Provider::Anthropic => "anthropic",
             Provider::OpenAi => "openai",
         };

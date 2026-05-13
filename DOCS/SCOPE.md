@@ -10,7 +10,7 @@ Two constraints drive every architectural decision below.
 
 **Constraint 1 — many concurrent jobs across many repos from a browser.** One person, a core running on a remote machine (home box, VPS, Mac mini), the browser as a thin view. This rules out a tab-resident AI loop and forces the runtime into the Rust core.
 
-**Constraint 2 — a coder loop must run unsupervised for 24 hours.** A developer starts a long job before bed and wakes up to commits on a branch, a status file showing what landed and what halted, and a few `[?]` review gates at the points where the loop decided it needed a human. This is the difference between "agent that codes" and "agent that codes for as long as it takes". It forces *fresh session per tick* — every tick is a disposable agent that re-reads the status file from disk and the git history from the remote, then exits. Anything in-memory between ticks is dead by morning. See [`LOOP-CODER.md`](./LOOP-CODER.md) for the full design intent, what 24-hour operation requires, and how this compares to the long-lived-orchestrator model that sibling projects use.
+**Constraint 2 — a coder loop must run unsupervised for hours.** A developer starts a long job before bed and wakes up to commits on a branch, a `handover.md` showing what landed and what halted, and a few `REVIEW` stages at the points where the loop decided it needed a human. This is the difference between "agent that codes" and "agent that codes for as long as it takes". It forces *fresh session per session* — every session is a disposable agent that re-reads the handover from disk and the git history from the remote, then exits. Anything in-memory between sessions is dead by morning. See [`LOOP-CODER.md`](./LOOP-CODER.md) for the full design intent, and [`JOB-MODEL.md`](./JOB-MODEL.md) for the user-facing handover/log contract.
 
 Constraint 1 alone is enough to rule out the inherited Terax model. In Terax today the AI loop runs *inside the webview* using the Vercel AI SDK in TypeScript, with each user's API key going from the browser/webview straight to OpenAI/Anthropic/etc. That model is fine for a single-user desktop tool with one job at a time. It does not work for what we want:
 
@@ -105,7 +105,7 @@ The Rust side is **explicitly split into reusable crates** so that browser, desk
 |---|---|---|---|---|
 | `codeless-types` | Pure data: Repo, Job, Stage, Task, Event, RPC message types (serde). **No I/O.** | ✅ | ✅ | Source of truth for the wire format. |
 | `codeless-rpc` | RPC trait + transport-agnostic client. | ✅ | ✅ | No assumptions about how bytes move. |
-| `codeless-runtime` | State machine, scheduler, queue, `sqlx`, event bus, `tokio`. **No process spawn, no PTY.** | n/a | n/a | The brain. Host-only — runs on the hosted server and inside Tauri desktop. Never compiled for mobile (mobile is always a thin client to a hosted core — see Phase 6). |
+| `codeless-runtime` | State machine, **job-queue scheduler** (picks which queued job runs next under the concurrency cap), **session scheduler** (fires the next fresh agent session for a running job), queue, `sqlx`, event bus, `tokio`. **No process spawn, no PTY.** | n/a | n/a | The brain. Host-only — runs on the hosted server and inside Tauri desktop. Never compiled for mobile (mobile is always a thin client to a hosted core — see Phase 6). The two schedulers are distinct mechanisms: the job-queue scheduler is `tokio`-supervisor over `jobs.status`; the session scheduler is what fires the next session-tick for a running job — see [`LOOP-CODER.md`](./LOOP-CODER.md) "What blocks this today". |
 | `codeless-adapters-host` | Worktree manager, shell, PTY, `ClaudeRunner`/`CodexRunner`/etc., local FS, secrets-file backend. | ❌ | ❌ | Process spawning gated here. Never compiled into mobile. |
 | `codeless-adapters-desktop` | OS-keychain secrets backend, native file dialogs. **Created when there is more than one thing to put in it** — until then, lives inside `codeless-tauri-desktop`. | ❌ | ❌ | Most things first thought of as "desktop" actually live in `adapters-host`. |
 | `codeless-server` | Hosted HTTP binary: axum SSE + REST + WS surface, auth middleware. Depends on `runtime` + `adapters-host`. | n/a | n/a | The MVP shell. |
@@ -125,7 +125,7 @@ Process-spawning runners (anything that launches `claude`, `codex`, etc.) are **
 |---|---|---|
 | `codeless` | This repo — Rust core + UI | new |
 | `terax-ai` (forked) | UI components to port from | [`crynta/terax-ai`](https://github.com/crynta/terax-ai) — fork or read-only reference |
-| `ai-runner` | `Runner` trait + `ClaudeRunner` / `CodexRunner` / `AnthropicRunner` / `OpenAIRunner` | `rubix-agent` workspace, `crates/ai-runner/` — vendor / workspace-dep / fork (open question) |
+| `ai-runner` | `Runner` trait + `ClaudeRunner` / `CodexRunner` / `AnthropicRunner` / `OpenAIRunner` | **Vendored** from `rubix-agent` workspace into `ai-runner/` (no `.git`), patched in-place. See [`CLAUDE.md`](../CLAUDE.md) and [`ai-runner.PATCHES.md`](../ai-runner.PATCHES.md). |
 | `mani.yaml` workspace | Multi-repo dev orchestration sitting above the repos | new — lives in `~/code/rust/` (existing parent), not a new dir |
 
 The mani workspace lives at `~/code/rust/mani.yaml` (the existing parent of `codeless/`):
@@ -179,8 +179,14 @@ $XDG_DATA_HOME/codeless/
 ├── repos/
 │   └── <repo-name>/.git         # shared object storage per repo
 └── worktrees/
-    └── job-<id>/                # one git worktree per job, reaped on completion
+    └── <job-name>-<id>/         # one git worktree per job, reaped on completion
 ```
+
+Per-job state that survives sessions — `.codeless/jobs/<name>.yaml`
+(the template) and `runs/<name>/handover.md` + `log.md` (the
+inter-session contract) — lives **in the user's repo** and is
+committed. SQLite + worktrees above are the runtime's private cache.
+See [`JOB-MODEL.md`](./JOB-MODEL.md) for the in-repo layout.
 
 ### Rule 1 — One transport interface, many implementations
 
@@ -294,7 +300,38 @@ Each job runs in its own isolated checkout, created via `git worktree add` from 
 
 The alternative (shared working tree) is unworkable for concurrent jobs on the same repo. The alternative (full clone per job) wastes disk and time. Worktrees are the right answer.
 
-Each worktree is created on a job-specific branch (e.g. `codeless/job-<id>`), so the result is reviewable as a normal branch / PR at the end. Merging back into the user's target branch is an explicit step the user (or a follow-up job) performs.
+Each worktree is created on a job-specific branch
+`codeless/<job-name>-<id>` (e.g. `codeless/user-profile-42`), so the
+result is reviewable as a normal branch / PR at the end. The job
+name comes from the YAML; the id is the SQLite row id. Merging
+back into the user's target branch is an explicit step the user
+(or a follow-up job) performs.
+
+**The worktree persists for the job's lifetime, not the session's.**
+A long unsupervised run is many fresh sessions firing in sequence
+against the same worktree — every session attaches to the same
+checkout, sees what the previous session committed, picks up where
+it left off via `runs/<name>/handover.md`. The worktree is reaped
+only when the job reaches a terminal state (`completed`, `failed`,
+`stopped`) — never between sessions.
+
+### Hard rules for the coding runner
+
+Independent of which runner is configured, these rules are
+load-bearing for the long-run constraint:
+
+1. **Never carry a runner session token across sessions.** No
+   `resume_id`, no `--continue`, no provider-side conversation
+   state. Each session is a fresh agent *and* a fresh runner
+   invocation. The runner re-onboards from the worktree, the
+   handover, and the repo's `CLAUDE.md` / `CODELESS.md`. This is
+   what keeps context bounded across an 8-hour run. See
+   [`LOOP-CODER.md`](./LOOP-CODER.md) "What blocks this today" for
+   the failure mode this prevents.
+2. **Push after every stage, never defer.** A session that commits
+   but doesn't push leaves the next session reading a stale remote.
+3. **A failed verify halts the loop.** No retry, no skip-and-continue.
+   The failure goes into `handover.md` so the user sees it on wake.
 
 ## Concurrency model — scheduler + queue + caps
 
@@ -335,9 +372,11 @@ For direct-API coding runners, runaway agents are expensive. Cost is treated lik
 - **Per-job cost cap** (configurable, default: $5). Hitting the cap cancels the runner via `CancellationToken` and transitions the job to `stopped-cost-cap`.
 - **Daily and monthly caps across all jobs** (configurable, default: $20 / $200). Hitting the daily cap blocks new API-driven jobs until the next day; queued jobs sit waiting.
 - CLI-wrapper runners are out of scope for cost tracking — the vendor handles billing, and we have no token visibility into Claude Code's internal calls.
-- **Wall-clock cap is the CLI-wrapper equivalent of the cost cap** (configurable, default: 30 min/job). Without it a stuck `claude` session would run unbounded against the user's Pro subscription. Same `CancellationToken` mechanism, same `stopped-wall-clock` terminal state. Direct-API runners get the wall-clock cap *too* (cost cap and time cap are independent fuses). **Tiebreaker**: if both fire effectively simultaneously, the terminal state is whichever cap's cancel-event has the lower event cursor. The supervisor doesn't race them — the first observed `cap-tripped` event wins and the second is suppressed.
+- **Wall-clock cap is the CLI-wrapper equivalent of the cost cap** (configurable, default: 8 h/job to match the long-run use case). Without it a stuck `claude` session would run unbounded against the user's Pro subscription. Same `CancellationToken` mechanism, same `stopped-wall-clock` terminal state. Direct-API runners get the wall-clock cap *too* (cost cap and time cap are independent fuses). **Tiebreaker**: if both fire effectively simultaneously, the terminal state is whichever cap's cancel-event has the lower event cursor. The supervisor doesn't race them — the first observed `cap-tripped` event wins and the second is suppressed.
 
 **Phase 2** delivers cost tracking, per-job cost caps, and per-job wall-clock caps. Daily/monthly caps land with Phase 3 (browser UI to display and configure them).
+
+**Loop-level aggregate ceilings (open item, planned post-MVP).** Per-job caps don't protect a long unsupervised run where 20 jobs each spend up to their cap; the user wakes up to "$100 spent, no useful progress". A two-tier `Continue` / `Escalate` / `Halt` ceiling on cumulative loop cost and wall time, evaluated by the runtime before firing each session, is the highest-priority budget feature after the per-job caps. Tracked here because SCOPE is the doc contributors read first; design intent and the rubix-borrow context live in [`LOOP-CODER.md`](./LOOP-CODER.md) "Ideas we should borrow" #1.
 
 ## Security model — single-user trust, full host blast radius
 
@@ -482,13 +521,24 @@ We explicitly **do not** adopt an ECS such as [Bevy](https://github.com/bevyengi
 
 ## Coding loop — CLI wrappers OR direct APIs, user picks per job
 
-> **Design intent and the 24-hour unsupervised run.** This section
-> covers *which runner* a job uses (CLI vs direct API). The loop
-> itself — the staged-batch contract, fresh-session-per-tick model,
-> what unsupervised operation requires, and what we keep / borrow /
-> reject relative to sibling projects — lives in
-> [`LOOP-CODER.md`](./LOOP-CODER.md). Operational rules each tick
-> follows live in [`JOB-LOOP.md`](./JOB-LOOP.md).
+> **What codeless is for.** VS Code, Cursor, JetBrains, Claude Code
+> already do editing, chat, and refactor well. Codeless does not
+> compete with them. Codeless does the one thing they don't:
+> **runs a long, unsupervised coding session for hours, across
+> many fresh agents, without losing context or burning the budget.**
+>
+> This section covers *which runner* a job uses (CLI vs direct API).
+> The design intent for the long-run model lives in
+> [`LOOP-CODER.md`](./LOOP-CODER.md). The user-facing framework —
+> `.codeless/` layout, job YAML, handover.md, log.md — lives in
+> [`JOB-MODEL.md`](./JOB-MODEL.md), with a worked walkthrough in
+> [`JOB-EXAMPLE.md`](./JOB-EXAMPLE.md). **The current MVP target —
+> "codeless develops codeless, visibly, from the browser" — is
+> spec'd in [`DOGFOOD-MVP.md`](./DOGFOOD-MVP.md);** read that
+> before starting any UI or wiring work. Operational rules the
+> *codeless developers* follow when building codeless live in
+> [`JOB-LOOP.md`](./JOB-LOOP.md) — that doc is for building
+> codeless, not for what codeless does for end users.
 
 **Rule:** The coding loop is whatever the user configures for the job. Both modes are first-class:
 
@@ -539,11 +589,35 @@ Hard rules for the helper role:
 
 Where Rig is genuinely useful long-term:
 
-- Planner: convert user goal → stages/tasks (user-reviewable before the job runs)
-- Reviewer: summarise stage output, flag what needs human attention
-- Summariser: titles, commit messages, release notes, search-answer generation
-- Job-memory RAG: SQLite-backed vector store of past job summaries and `CODELESS.md` notes
-- Cheap-model routing: titles and summaries on a small model, review on a smart one
+- **Commit-message summariser** *(Phase 2 nice-to-have, lands when the
+  coder loop works end-to-end)*: takes the staged diff + the stage
+  title and produces a commit message. The smallest possible first
+  Rig use, proves the helper boundary holds, free quality win on
+  every tick.
+- **Stage-result reviewer feeding the `Review` table** *(high-payoff
+  for the long-run use case)*: when a stage's title is prefixed
+  `REVIEW`, the runtime materialises it into a `Review` row and the
+  operator wakes up to a queue of reviews. A Rig-backed reviewer
+  attaches a "what changed, what's risky, what I'd ask a human
+  about" summary to each row. Per hard rule #1, raw diff + verify
+  output must still work without it.
+- **Job-memory RAG** *(highest-payoff Rig use against the long-run
+  constraint — see [`LOOP-CODER.md`](./LOOP-CODER.md))*: SQLite-backed
+  vector store of past job summaries, prior `runs/*/log.md`, and
+  `CODELESS.md` notes. A fresh-session-per-session agent has no memory
+  of prior dead ends; RAG lets it look them up instead of carrying
+  them in-prompt. This is the bridge between "fresh agent every tick"
+  and "the loop gets smarter over time".
+- Planner: convert user goal → stages/tasks, user-reviewable before
+  the job runs. Defer until ~10 real jobs exist to train against — a
+  bad plan poisons the whole job, and hand-written YAML/TOML
+  templates are the right Phase 1 answer.
+- Summariser (other roles): titles, release notes, search-answer
+  generation.
+- Cheap-model routing: titles and summaries on a small model, review
+  on a smart one. Also the right home for the future "did this
+  verify output mean success?" check when codeless drives user repos
+  with custom `verify.sh`.
 
 ## Multi-repo dev setup — use `mani`
 
@@ -551,7 +625,7 @@ Codeless development spans multiple repos (this repo, the vendored/forked `ai-ru
 
 ## Runner layer — adopt the `rubix-agent/ai-runner` crate
 
-We do **not** design the provider-runner abstraction from scratch. The existing `ai-runner` crate from the `rubix-agent` workspace already has the right shape and is battle-tested. (Crate is internally controlled — same author / org as Codeless. License and adoption mode — vendor / workspace dep / fork — are tracked under open questions.)
+We do **not** design the provider-runner abstraction from scratch. The existing `ai-runner` crate from the `rubix-agent` workspace already has the right shape and is battle-tested. **Adoption mode: vendored** (copied into `ai-runner/` at the workspace root, no `.git` of its own, patched in-place; every patch logs a row in [`ai-runner.PATCHES.md`](../ai-runner.PATCHES.md) and leaves a `// codeless-patch-NNN` marker in source). Crate is internally controlled — same author / org as Codeless.
 
 - A `Runner` trait with typed `CliCfg` / `RestCfg` inputs, streaming events through a bounded `mpsc::Sender<Event>`, and `CancellationToken`-based cancellation.
 - `ClaudeRunner` built on `claude-wrapper`, including production-quality binary discovery (env override → PATH → well-known bin dirs → editor-shipped copies in VS Code / Cursor / vscode-server / Windsurf) and MCP HTTP config.
@@ -711,6 +785,24 @@ Adding a method to the RPC trait without adding it to the MCP tool list **fails 
 
 `codeless.secrets.get`, `codeless.secrets.set`, and the entire `codeless.auth.*` surface are **not** exposed as MCP tools. An MCP client is an LLM running prompts that may be attacker-controlled (a malicious doc, a poisoned tool result, a prompt-injection inside a repo). Secret material and the bearer-token lifecycle stay under the user's direct hand — CLI for local, browser-with-bearer for hosted. The `opt_out_reason` for these is `"secret material; out-of-band only"`.
 
+**Asymmetry between stdio and HTTP MCP.** Both transports surface
+the same tool list (minus secrets/auth above). They differ in their
+security boundary:
+
+- **HTTP MCP** — bearer token authenticates the *client*. The user
+  has explicitly granted the bearer to an agent host they trust.
+- **stdio MCP** — there is no bearer; the child process inherits
+  the user's local trust. The real security boundary is the **MCP
+  host's per-tool approval UX** (in Claude Code: the "approve this
+  tool call?" prompt). Tools with side-effects beyond reading are
+  still exposed because the host gates each call.
+
+`codeless.secrets.*` and `codeless.auth.*` are excluded from *both*
+transports because per-call approval is not a strong enough boundary
+for them: a single approved call could read the entire bearer token
+or rotate it. These operations are irreversible-in-aggregate and
+belong out-of-band regardless of how good the host's approval UX is.
+
 ## Provider runners
 
 All runners implement the existing `Runner` trait from `ai-runner` (see "Runner layer" above). Three categories, one trait:
@@ -765,11 +857,11 @@ The MVP is **Phase 3**: browser UI talking to a single-tenant hosted core on a b
 - Define the RPC trait and an in-process implementation
 - Wire-type generation from Rust to TypeScript via `specta` (+ `tauri-specta` ready for Phase 5)
 - SQLite schema with path-provider abstraction for **repos**, jobs, stages, tasks, sessions, events, reviews — event schema expressive enough for DAG state on day one
-- Adopt `ai-runner` (vendor / workspace dep) so `ClaudeRunner`, `CodexRunner`, `AnthropicRunner`, `OpenAIRunner` are available from day one — process-spawning runners gated behind a Cargo feature so future thin-client builds exclude them
+- Adopt `ai-runner` (vendored — see crate table) so `ClaudeRunner`, `CodexRunner`, `AnthropicRunner`, `OpenAIRunner` are available from day one — process-spawning runners gated behind a Cargo feature so future thin-client builds exclude them
 - Port the Terax Rust modules (`pty`, `shell`, `fs`) into `codeless-adapters-host` behind the RPC
 - Worktree manager: `git worktree add` / `remove` wired up, reaper on startup
 - **Thinnest possible end-to-end run**: `codeless run --once --repo <repo> "<prompt>"` invokes a chosen runner once and streams its events to stdout. No state machine, no YAML, no review gate. This is the first dogfoodable surface — use it on Codeless itself from Phase 1 onwards.
-- **Create `CLAUDE.md` at the repo root** capturing the rules from this scope that an AI agent (or human) must follow when touching code: the crate dependency-direction rule, the no-`@tauri-apps/api/core` rule, the no-`Foo.web.tsx`/`Foo.mobile.tsx` rule, and the `RpcClient`-only-import rule for UI modules. Without this file, every agent run starts from zero context and silently violates the rules that make the cross-platform plan work.
+- **Maintain `CLAUDE.md` at the repo root** (created during workspace bootstrap) capturing the rules from this scope that an AI agent (or human) must follow when touching code: the crate dependency-direction rule, the no-`@tauri-apps/api/core` rule, the no-`Foo.web.tsx`/`Foo.mobile.tsx` rule, and the `RpcClient`-only-import rule for UI modules. Without this file, every agent run starts from zero context and silently violates the rules that make the cross-platform plan work.
 - **Testing baseline**: `cargo test --workspace` green on day one, with the state-machine unit tests, the in-memory SQLite + `MockRunner` integration harness, and the queue property tests in place. CI on GitHub Actions: test + clippy + fmt.
 - **`tracing` baseline**: structured spans across job → stage → task wired through from Phase 1, JSON to stdout in hosted mode.
 - **`sqlx::migrate!` baseline**: initial schema as a versioned migration, pre-startup backup, forward-only migration policy.
@@ -863,7 +955,7 @@ CREATE TABLE repos (
   name            TEXT NOT NULL UNIQUE,       -- user-facing handle
   clone_url       TEXT NOT NULL,
   default_branch  TEXT NOT NULL,
-  local_path      TEXT NOT NULL,
+  local_path      TEXT NOT NULL,              -- path to the shared .git: $XDG_DATA_HOME/codeless/repos/<name>/.git
   git_auth        TEXT NOT NULL,              -- JSON: { kind: "ssh"|"token"|"github_app", ... }
   concurrency_cap INTEGER,                    -- NULL → use global cap
   default_runner  TEXT,                       -- e.g. "claude" | "anthropic" | NULL
@@ -971,7 +1063,6 @@ Notes:
 
 ## Open questions
 
-- **`ai-runner` adoption shape**: vendor the crate into `codeless`, depend on it via the rubix workspace, or fork it. Affects how invasive changes to the trait can be, and how cleanly we can Cargo-feature-gate process-spawning runners for future thin-client builds.
 - **Default coding runner**: when a job's YAML doesn't name one, do we default to the CLI wrapper (free, requires login) or the API runner (metered, requires key)? Probably CLI wrapper if `claude` is on PATH, otherwise API runner if a key is configured.
 - **Rig vector-store backend**: SQLite (matches our SQLite-first rule) vs. LanceDB/Qdrant (better at scale). Default to SQLite; revisit if memory search gets slow.
 - **Tauri-mobile maturity** (Phase 6): if a specific feature genuinely doesn't work via Tauri 2 mobile (e.g. background execution), add a thin native Tauri plugin — do not fork to a second UI framework. Verify push notifications, biometric unlock, and SSE-over-HTTP behaviour on both iOS and Android during Phase 6.
@@ -985,3 +1076,7 @@ Notes:
 - **`codeless-runtime` mobile reach**: host-only — mobile is always a thin client. See crate table.
 - **`codeless-adapters-desktop` timing**: created in Phase 5 when it has more than one thing in it. Until then it lives inside `codeless-tauri-desktop`.
 - **Multi-repo dev setup**: `mani` workspace.
+- **`ai-runner` adoption shape**: vendored into `ai-runner/` at the
+  workspace root, no `.git` of its own, patched in-place. Every
+  patch logs a row in `ai-runner.PATCHES.md` and leaves a
+  `// codeless-patch-NNN` marker in source.

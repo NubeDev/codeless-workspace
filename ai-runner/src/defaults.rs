@@ -23,7 +23,7 @@ impl AiDefaults {
         match provider {
             Provider::Anthropic => self.anthropic_api_key.clone(),
             Provider::OpenAi => self.openai_api_key.clone(),
-            Provider::Claude | Provider::Codex => None,
+            Provider::Claude | Provider::Codex | Provider::Copilot => None,
         }
     }
 }

@@ -246,6 +246,120 @@ demo into something you'd actually leave running.
   a shell-ready `cd '<path>' && git status` on the clipboard.
   Single-quoted so paths with spaces paste safely. No real
   terminal is opened — desktop / browser parity (Rule 3).
+- **ux-12 — iterate loop.** A job stops being a fire-and-forget
+  arrow and becomes a document with a run history. Three new RPCs
+  — `update_job_template`, `update_job_handover`, `add_job_note` —
+  write their files into the source repo and commit them, so spec
+  drift shows up in `git log` rather than vanishing into runtime
+  state. On the UI side, the **Template** pane edits the
+  `.codeless/jobs/<name>.yaml` inline with a CodeMirror YAML
+  editor (explicit save / discard, "open in tab" for the full
+  editor); the **Handover** pane gains the same edit affordance
+  against `runs/<job_id>/handover.md`; a new **Notes** pane lists
+  ad-hoc markdown notes under `runs/<job_id>/notes/` with a
+  "+ note" dialog that defaults the filename to a sortable
+  timestamp. The orchestrator's prompt-prefix builder concatenates
+  every `notes/*.md` after the handover before the next run starts
+  (see [DOCS/JOB-WORKFLOW.md](DOCS/JOB-WORKFLOW.md) "How feedback
+  flows through the prompt assembler"), so dropping a feedback
+  note is enough to nudge the next agent. The re-run button is
+  now a dialog with an optional feedback textarea — accepted text
+  is saved as a timestamped note on the source job before the
+  fresh job is queued. JOB-WORKFLOW.md (B) — splitting Job and Run
+  — is deliberately out of scope; this lands the iterate half of
+  the loop without a schema change.
+- **ux-13 — hard-coded planner fallback.** DOGFOOD-MVP.md stage 3.
+  The "new job" wizard accepts a plain-English goal, hits a new
+  server-side `plan_job` RPC, and surfaces 2-3 proposed stages the
+  user can edit before queueing. The planner is a pure Rust match
+  table — patterns like `add X endpoint [to Y]`, `rename X to Y`,
+  `fix X in Y`, `add tests for X`, with a fallback that uses the
+  goal verbatim as one stage. Lives at
+  [`crates/codeless-runtime/src/planner.rs`](codeless/crates/codeless-runtime/src/planner.rs);
+  swap in a Rig-backed planner later without touching the surface.
+  Queueing with the preview shipped sets `template_yaml`, so the
+  job runs through `TemplateRunner` (Claude-backed) with the stage
+  list intact — the iterate-loop edits from ux-12 (template /
+  handover / notes) apply unchanged.
+- **ux-14 — "what now?" affordance.** DOGFOOD-MVP.md stage 9.
+  When a job reaches `completed`, the worktree section grows a
+  prominent block at the top with two copy buttons: a
+  `gh pr create --draft --base <default> --head <branch>` command
+  and the existing `cd <worktree> && git status` one-liner.
+  Codeless never invokes `gh` or opens the worktree itself —
+  printing the command keeps the trust boundary honest (SCOPE.md
+  R5). Closes the loop: agent landed → user inspects → user
+  opens PR, all without leaving the browser tab.
+- **ux-15 — `codeless demo bootstrap --target-self`.**
+  DOGFOOD-MVP.md stage 2. One flag registers the cwd (or
+  `--local-path`) as the target repo for real-runner jobs:
+  defaults the name to `codeless`, the clone URL to a
+  `file://<local_path>` so a real runner can resolve it without
+  a remote, the runner to `claude`, and **skips the auto-queued
+  mock job** so the user can type a real goal in the UI. The
+  HEAD-branch detection from ux-6 still runs, so a `master`-
+  init'd checkout works without a flag.
+
+## Dogfood: codeless develops codeless
+
+DOGFOOD-MVP.md's twelve-step golden path, with the exact commands.
+End state: type a goal in the browser, watch codeless edit its own
+source, copy `gh pr create` when it's done.
+
+### Prereqs
+
+- Everything from "Prereqs" at the top of this file.
+- The `claude` binary on `PATH` and `claude auth login` run once
+  (see "Real runner: Claude Code" above).
+- This workspace cloned to a local path you can write to.
+
+### One-time setup
+
+```sh
+# Register the codeless repo as the target.
+cargo run -p codeless-cli --bin codeless -- \
+    --db /tmp/codeless-dogfood.db \
+    demo bootstrap --target-self --local-path "$PWD"
+```
+
+The `codeless` row shows up in the UI sidebar after this. No
+auto-queued mock job — the next step is a real one.
+
+### Run a job
+
+```sh
+# Terminal A
+cargo run -p codeless-cli --bin codeless -- \
+    --db /tmp/codeless-dogfood.db \
+    serve --bind 127.0.0.1:7777 --fs-root "$PWD" --enable-claude
+
+# Terminal B
+pnpm -C codeless/ui/codeless-ui dev
+```
+
+In the browser at `http://127.0.0.1:5173`:
+
+1. Pick the `codeless` repo in the sidebar.
+2. Click **New job**.
+3. Type a one-line goal, e.g.
+   *"add a `/healthz` route to `codeless-server` that returns
+   `200 OK`."*
+4. Click **preview stages** — the hard-coded planner (ux-13)
+   proposes 2-3 stages. Edit if you want.
+5. Click **queue with stages**.
+6. Watch the timeline: the worktree is cut, Claude reasons,
+   tool-calls land. Stages tick off.
+7. When the job hits `completed`, the **Worktree** tab shows the
+   "what now?" block with `gh pr create --draft --base <default>
+   --head <branch>` and a `cd <worktree>` button. Copy one and
+   you're done.
+
+### Iterate without leaving the browser
+
+If the agent went sideways, the **Template**, **Handover**, and
+**Notes** panes are all editable inline (ux-12). The **re-run**
+button takes optional feedback that lands as a note before the
+next run starts, so the next agent reads it after the handover.
 
 ## Smoke test
 

@@ -19,16 +19,18 @@ impl Registry {
     }
 
     /// Create a registry pre-loaded with:
-    /// - **CLI**: [`ClaudeRunner`] (claude-wrapper), [`CodexRunner`] (tokio process)
+    /// - **CLI**: [`ClaudeRunner`] (claude-wrapper), [`CodexRunner`] (tokio process),
+    ///   [`CopilotRunner`] (tokio process)
     /// - **REST**: [`AnthropicRunner`] (anthropic-ai-sdk), [`OpenAiRunner`] (async-openai)
     pub fn with_defaults() -> Self {
         use crate::runners::{
             anthropic::AnthropicRunner, claude::ClaudeRunner, codex::CodexRunner,
-            openai::OpenAiRunner,
+            copilot::CopilotRunner, openai::OpenAiRunner,
         };
         let r = Self::new();
         r.register(Arc::new(ClaudeRunner));
         r.register(Arc::new(CodexRunner));
+        r.register(Arc::new(CopilotRunner));
         r.register(Arc::new(AnthropicRunner));
         r.register(Arc::new(OpenAiRunner));
         r

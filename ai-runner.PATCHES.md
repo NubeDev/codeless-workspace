@@ -76,3 +76,36 @@ preserving the pre-patch behaviour for terminal callers.
 straightforward.
 
 **Marker:** `// codeless-patch-002`
+
+### PATCH-003 — GitHub Copilot CLI runner
+
+**Files:** `src/types.rs` (new `Provider::Copilot` variant + Display
+arm), `src/defaults.rs` (extend the `api_key_for` no-key match arm),
+`src/runners/copilot.rs` (new file), `src/runners/mod.rs` (export),
+`src/registry.rs` (register in `with_defaults`).
+
+**Before:** No runner for the GitHub Copilot CLI (`copilot`, installed
+via `curl -fsSL https://gh.io/copilot-install | bash`). Users with a
+Copilot subscription could not pick it as a backend.
+
+**After:** `CopilotRunner` follows the `CodexRunner` shape — spawns
+`copilot -p <prompt> --allow-all-tools --no-ask-user --no-auto-update
+[-C <work_dir>] [--model <m>]`, streams stdout lines as
+`EventKind::Text`. Auth is the binary's responsibility (GitHub device
+flow, state in `~/.copilot/`). `--allow-all-tools` is mandatory for
+non-interactive mode; `--no-ask-user` prevents the agent from stalling
+on a missing TTY; `--no-auto-update` keeps the spawned process from
+trying to mutate itself mid-job.
+
+**Caveats:** The Copilot CLI emits plain text (with ANSI in some
+modes) rather than a JSONL event stream like Claude Code, so this
+runner does not surface structured tool-use events or per-run cost.
+Upgrading to richer events would require either parsing
+`--log-dir` JSON logs after the fact or wiring the
+`--acp` (Agent Client Protocol) server mode — both larger jobs
+deferred until there is product demand.
+
+**Upstream:** new feature, not a patch over upstream behaviour. PR
+should add the runner unchanged.
+
+**Marker:** none required — entirely new file, no inline patch site.
