@@ -342,12 +342,314 @@ Ordering rationale per item is in its own paragraph; if you disagree
 with the order, change it here before starting work so the rationale
 travels with the change.
 
-### A1 — Close the handover read/write loop (M-L, blocking everything else)
+The tracks:
 
-> Autonomy claim: *"agent reads handover and picks up where the last
-> session left off."* Today this is half-built. Without it, "fresh
-> session per session" leaks context every tick and 8-hour runs are
-> fiction. This is the load-bearing item.
+| Track | Concern | First items |
+|---|---|---|
+| **R — Real codebases** | "does it fit a project I actually have?" | R0 (workspace_mode), R1–R4 (polyglot/monorepo, history hygiene, dev loop) |
+| **A — Autonomy** | "can it run unattended for 8 hours, and does an interruption inside a stage feel like Claude Code instead of starting over?" | A0 (intra-stage continuation), A1 (cross-stage handover), A2–A5 (feedback, retry, budget, planner) |
+| **U — UX** | "can I drive it pleasantly?" | U1–U2 (RunPane, StageDetail wishlist) |
+
+R0 jumps to the absolute top because every other item is moot if a
+developer can't actually use codeless against their own repo without
+foreign-checkout friction. **A0 sits second** because every other
+autonomy item is moot if a mid-stage interruption throws away $5 of
+context every time the developer pauses to think — A0 is what makes
+the loop feel like Claude Code instead of an alien tool, and the
+old "fresh session per session" framing was over-broad. Autonomy
+beyond A0 (handover, retry, budget, planner) is moot if you can't
+trust the output. UX is moot if you can't use the loop at all. The
+order below reflects that.
+
+### R0 — `workspace_mode: in_repo | worktree` (S, blocking real dogfooding)
+
+> Real-codebase claim: *the agent works on **your** repo, on a
+> branch you can see, with the dev tools and IDE you already use.*
+> Today every job runs in a `/tmp/codeless-worktrees/...` foreign
+> checkout — fine for the multi-job overnight use case (which is
+> what the original design targeted), wrong for single-developer
+> dogfooding (which is how the product actually gets used day to
+> day). This is the single biggest "why doesn't this match a normal
+> dev workflow" friction.
+
+What changes:
+
+- `Job.workspace_mode: WorkspaceMode { InRepo, Worktree }` — new
+  field, **default `InRepo`**. Surfaces on `SubmitJobArgs` so the UI
+  / CLI can pick. The submit dialog gets a radio with a sensible
+  default (in_repo for personal repos, worktree if explicitly
+  flagged or multiple jobs already running).
+- `InRepo` mode: the worktree manager skips `git worktree add`.
+  Instead it `git checkout -b codeless/<slug>` on the user's existing
+  clone (at `Repo.local_path`) and runs the agent there. Edits land
+  in the user's real working files. Commits land on the job branch
+  in the user's `.git`. `git branch -a`, `git log`, the IDE, and any
+  dev server pointed at the repo path all see the change with no
+  rebuild-from-tmp-dance.
+- `Worktree` mode: today's behaviour — `git worktree add` under
+  `.codeless/worktrees/<job-id>` (or `/tmp/codeless-worktrees/...`
+  per existing config). Stays opt-in because the overnight / fleet
+  use case genuinely needs it.
+- **Concurrency rule.** At most one `InRepo` job per repo. Submitting
+  a second one returns `RpcError::Conflict("repo X is already in use
+  by job Y in in_repo mode; stop it or submit as worktree")`. The
+  global / per-repo concurrency caps still apply to `Worktree`
+  jobs.
+- The job branch survives `InRepo` job termination — it lives in
+  the user's repo for them to merge or delete. The system never
+  auto-deletes a branch that exists in the user's working clone.
+
+Touchpoints:
+- `crates/codeless-types/src/job.rs` — `WorkspaceMode` enum + field.
+- `crates/codeless-rpc/src/methods.rs` — wire field on
+  `SubmitJobArgs` and `Job`.
+- `crates/codeless-runtime/src/worktree.rs` (or wherever worktree
+  alloc lives) — branch on mode; in-repo path just does
+  `git checkout -b`, no worktree add.
+- `crates/codeless-runtime/src/state_machine.rs` — `(repo_id,
+  InRepo)` exclusivity check at submit / promote time.
+- `crates/codeless-runtime/src/store.rs` — migration to add the
+  column with default `'in_repo'` for any backfill (default for
+  *new* jobs is also `InRepo`).
+- `crates/codeless-server/src/routes.rs` — already covered via
+  `submit_job` shape; no new route.
+- `crates/codeless-cli/src/job.rs` — `--workspace-mode in_repo |
+  worktree` flag (default in_repo).
+- `ui/codeless-ui/src/modules/jobs/SubmitJobDialog.tsx` — radio,
+  inline help, conflict messaging.
+- Tests: state-machine exclusivity (two in_repo submits → second is
+  rejected); worktree-alloc skip in in_repo mode; in_repo job's
+  branch is left intact on stop.
+
+Out of scope here (later R-track items):
+- Per-stage `cwd` / `verify_cmd` for monorepos with multiple build
+  systems → R1.
+- Path-scoped agent edits per stage → R2.
+- Squash-on-merge / sidecar provenance / commit-author rewriting →
+  R3.
+- Live-reload of the dev server from a job's branch → R4.
+
+Why this is the new floor:
+
+- The original design (worktree-only) is correct for the
+  overnight-fleet use case but wrong for the single-developer
+  dogfooding loop. Today the dogfooding loop is broken: agent
+  edits land in `/tmp`, the user can't test live, and the only way
+  to "use" the change is to merge it (which is the *post-merge*
+  loop, not the *pre-merge* dev loop).
+- Without R0, no amount of A-track work fixes the "doesn't match a
+  normal dev workflow" complaint, because the complaint isn't about
+  the agent — it's about where the agent works.
+- Cost is tiny (a day, maybe two). The schema change is additive.
+  Worktree mode stays around verbatim.
+
+### R1 — Per-stage `cwd` + `verify_cmd` (M, monorepo support)
+
+> Real-codebase claim: *a repo with `backend/`, `ui/`, `mobile/`,
+> `infra/` works as a single codeless repo.* Today every stage runs
+> verify at repo root with one command (whatever the runner
+> defaults to). For polyglot or monorepo work that's wrong — a
+> `ui/` stage should run `pnpm test` in `ui/`, not `cargo test` at
+> root.
+
+Design:
+
+- `StageSpec` gains `cwd: Option<String>` (relative to repo root)
+  and `verify_cmd: Option<String>` (single shell line, executed
+  in `cwd`). Both default to "repo root" / runner default for
+  backward compat.
+- The driver passes `cwd` to the runner adapter so the agent's own
+  tool calls land in the right place too.
+- Per-stage `verify_passed` / `verify_failed` events carry the
+  command that ran and its exit code, so the UI can show the
+  actual failure without re-running anything.
+
+This is what makes codeless usable on real projects (multi-build
+monorepos, the codeless repo itself once UI work needs `pnpm`
+verification, etc.). Lower-priority than R0 only because R0 unlocks
+*any* dogfooding; R1 unlocks *real-project* dogfooding.
+
+### R2 — Path-scoped edits per stage (S-M)
+
+> Real-codebase claim: *a stage labelled "UI: render session id"
+> should not be able to scribble in `crates/`.* Today nothing stops
+> the agent from touching anything in the workspace.
+
+Design:
+
+- `StageSpec.scope: Option<Vec<String>>` — glob patterns the stage
+  is allowed to edit. Default `None` = no restriction (back-compat).
+- The runtime wraps the runner's file-write tool with a guard that
+  rejects writes outside `scope`. Tool rejection becomes a
+  `tool-call` event with `result: rejected_out_of_scope`.
+- Stage SCOPE.md authors can `scope: ["ui/**"]` to keep mechanical
+  stages from sprawling.
+
+Lower-priority than R0/R1 because today's three-stage
+hand-authored jobs are small enough that scope drift is a review
+problem, not a runtime one. Becomes urgent once A5 (planner)
+generates stages — auto-generated stages with no scope will sprawl
+within hours.
+
+### R3 — Git history hygiene (M, the trust-load-bearer)
+
+> Real-codebase claim: *merging agent work into master does not
+> degrade the project's git history.* Today an agent job branch is
+> a series of per-stage commits authored by the agent, with
+> branch names like `codeless/job-01KRGSA94G9FMZMX7BCPZ06V5G`. Merge
+> any of those `--no-ff` and you carry the ULID branch name and
+> stage-N commit messages into master forever. Squash-merge and you
+> lose the staged review history. Either way, the project's `git
+> log` is now polluted with codeless-specific artefacts.
+
+Design (pick one or land both as a user choice):
+
+- **Promote-on-merge:** a `codeless job promote <id>` (and UI
+  equivalent) that takes the job branch's commits, presents the
+  user with a "this is what's going onto your branch" editor (one
+  commit message per stage, or one squashed message), and
+  cherry-picks them onto the target branch as the **user**, not the
+  agent. The job branch is then archived / discarded. The
+  project's history is what the user would have written, with the
+  agent's iteration buried in a discarded branch.
+- **Sidecar provenance:** every job branch's commits also write
+  to `refs/codeless/jobs/<id>` (not `refs/heads/...`), invisible
+  to `git branch -a` and `git log --all` unless asked. The branch
+  for review purposes still exists, but it doesn't colonise the
+  user's normal git surface area.
+
+R3 is *the* trust gate. Without it, a developer who tries codeless
+on a serious project finds their `git log` going to pieces and
+walks away. With it, the project's history stays the developer's
+history and the agent's work is just one more PR-shaped artefact.
+
+### R4 — Live-reload the dev server from a job's branch (S-M)
+
+> Real-codebase claim: *I can run my dev server against the
+> agent's work without rebuilding from `/tmp`.* In `in_repo` mode
+> (R0) this is trivial — the user's existing dev server already
+> sees the agent's edits. In `worktree` mode it's still a gap;
+> codeless could add a "rebuild from this job's branch" action
+> that runs `cargo run` / `pnpm dev` against the worktree's path.
+
+Lower priority than R0–R3 because R0 makes the most common case
+work for free.
+
+### A0 — Intra-stage session continuation (M, the load-bearing fix)
+
+> Autonomy claim: *"pause / ask / resume / raise-the-cap inside a
+> stage continues the same runner conversation, exactly like
+> Claude Code's `--continue`."* Today every mid-stage interruption
+> (cost-cap, wall-clock-cap, user stop, daemon restart) spawns a
+> fresh agent that has to re-derive the codebase, re-form the
+> plan, re-discover what it just learned. That's why a $5 cap
+> bump after a $7 stage costs another $7 instead of $0.50 —
+> nothing carries. This is the single biggest "doesn't match
+> Claude Code" friction, and the previously-stated hard rule
+> ("never carry a session token") was the wrong rule.
+
+The corrected rule is in [SCOPE.md hard rule #1](./SCOPE.md#hard-rules-for-the-coding-runner):
+**the stage is the session boundary, not every runner
+invocation.** Within a stage the runner session is continuous;
+across a stage boundary the session always resets. Stages bound
+context; sessions do not have to.
+
+What changes:
+
+1. **Pause vs stop as a job/stage state distinction.** New
+   terminal-vs-pause distinction in `JobStatus` and `Stage.status`.
+   Cost-cap and wall-clock-cap mid-stage transition to
+   `paused (cost-cap)` / `paused (wall-clock-cap)`, not `failed`
+   / `stopped`. The worktree, the branch, and the captured
+   `Stage.session_id` survive. The job is *resumable*, not
+   *re-runnable*.
+2. **`resume_job` RPC.** Takes `{ job_id, additional_cost_cap_cents?,
+   additional_wall_clock_cap_ms? }`. Increments the existing caps
+   (or leaves them) and re-fires the stage's runner with
+   `--continue <session_id>` — same conversation, same in-context
+   files, same half-formed plan. The agent wakes up where it left
+   off.
+3. **Cap raise on a paused job.** Either via `resume_job`'s
+   optional cap fields, or a separate `update_job_caps` RPC.
+   Either way the existing job row is mutated; no clone, no fresh
+   worktree.
+4. **"Ask a question" inside a stage.** A user message during a
+   paused stage gets folded into the next prompt before the
+   `--continue` resumes. Reuses the same plumbing as A2's
+   `add_job_note`, but scoped to the *current* stage's session
+   rather than the next stage's prompt.
+5. **The captured `Stage.session_id` is load-bearing, not
+   observability.** The doc-comment on
+   `crates/codeless-types/src/stage.rs` (cherry-picked into
+   `feat/stage-session-id`) currently says *"Persisted for
+   observability only — see SCOPE.md hard rule #1: codeless never
+   reuses this to resume a runner."* That's wrong under the new
+   rule. Update the comment when A0 lands so the next contributor
+   doesn't think the field is decorative.
+
+Touchpoints:
+- `crates/codeless-types/src/job.rs` — `JobStatus::Paused(PauseReason)`.
+- `crates/codeless-types/src/stage.rs` — `StageStatus::Paused`,
+  update the docstring on `session_id` to match the new rule.
+- `crates/codeless-runtime/src/state_machine.rs` — new transitions
+  (`running → paused (cap)`, `paused → running` on resume).
+- `crates/codeless-runtime/src/scheduler.rs` (or wherever the cap
+  check fires) — pause-not-fail on cap trip mid-stage.
+- `crates/codeless-runtime/src/template_runner.rs` /
+  `claude_runner.rs` — when the stage row has a non-null
+  `session_id`, the next task's CliCfg sets
+  `claude_session_id: Some(...)` so the wrapper passes
+  `--continue`. Provider-specific equivalents for Anthropic /
+  OpenAI runners come later (REST resume is shaped differently;
+  out of scope for the first A0 slice — CLI-wrapper Claude is
+  enough to ship the UX).
+- `crates/codeless-rpc/src/{server,methods}.rs` — `resume_job`
+  RPC and args.
+- `crates/codeless-server/src/routes.rs` — `/rpc/resume_job` route.
+- `crates/codeless-client/src/http_client.rs` — HTTP impl.
+- `crates/codeless-cli/src/job.rs` — `codeless job resume <id> [--cost-cap-bump
+  ¢] [--wall-clock-bump ms]`.
+- UI: paused-state badge on JobsDashboard and the RunPane, a
+  `[resume]` action with an inline cap-bump field when the pause
+  reason is cap-tripped.
+
+Out of scope here (A1's job):
+- Cross-stage handover synthesis — that's still A1, just with
+  cleaner framing: handover is the artefact *between* stages, not
+  the artefact for every interruption.
+- REST-runner (`AnthropicRunner`, `OpenAIRunner`) resume —
+  different mechanism (re-send the conversation; no provider
+  session token). First A0 slice covers the CLI-wrapper path,
+  which is the dominant use case and where the friction was
+  observed.
+
+Why this is ahead of A1:
+
+- A1's old framing said "handover at every session boundary." But
+  most "session boundaries" in current operation are actually
+  pauses (cap trips, user stops, restarts) — and a handover-style
+  reset across a pause throws away ~$5 of context for ~$0 of safety
+  benefit, because the *next* invocation is the same stage doing
+  the same work. The handover artefact has a real job — it's the
+  cross-stage onboarding doc — but it's the wrong tool for the
+  intra-stage problem.
+- Without A0, the developer-loop complaint stands: every "I need
+  to stop and think for a second" costs another $5 to restart.
+  Nobody dogfoods a tool that wastes their context every time
+  they look away.
+- A0 is genuinely simpler than A1 — no synthesiser, no event
+  rollup, no diff-summarisation. Just a status enum extension, a
+  resume RPC, and `--continue` passthrough. A week of work,
+  schema-additive.
+
+### A1 — Cross-stage handover (M-L, after A0)
+
+> Autonomy claim: *"at a stage boundary the next stage's fresh
+> session reads a handover that names what landed, what halted,
+> and what was learned, then picks up correctly."* This is the
+> **cross-stage** onboarding artefact. The intra-stage continuation
+> problem belongs to A0 — they are different problems and the old
+> framing of A1 conflated them.
 
 What exists today:
 
@@ -360,13 +662,18 @@ What exists today:
 
 What's missing — must land together:
 
-1. **Agent-authored handover at session end.** When a session
-   terminates (stage-complete, verify-fail, cap-tripped, crash), the
-   runtime synthesises `handover.md` from: the stage's events, the
-   commit diff on the branch, the final assistant message
-   (`StageDetail` wishlist item #4), and a structured "what halted
-   and why" block. This is *not* a Rig helper — it's deterministic
-   summarisation over `events` + `git log`. Rig can polish later.
+1. **Agent-authored handover at stage completion.** When a stage
+   reaches a terminal state that hands control off to the *next
+   stage* (`passed`, or `failed` with no retry, or
+   `awaiting-review` once the review resolves and the next stage
+   opens), the runtime synthesises `handover.md` from: the stage's
+   events, the commit diff on the branch, the final assistant
+   message (`StageDetail` wishlist item #4), and a structured
+   "what landed / what's open / what to watch out for" block.
+   Deterministic summarisation over `events` + `git log`, not a Rig
+   helper; Rig can polish later. **Cap-tripped and crashed
+   mid-stage do not synthesise a handover** — those are A0's
+   pauses, the same stage continues with `--continue`.
 2. **Prompt builder reads handover first.** The next session's
    system prompt opens with handover.md (if present), then SCOPE,
    then WORKFLOW, then the stage's per-stage docs. Order matters:
@@ -575,25 +882,54 @@ up when the autonomy track is between phases.
 ## TL;DR for the next session
 
 1. Read this doc, especially the **Next steps** section. The
-   ordering has changed: autonomy (A1–A4) now precedes the RUN
-   page UX overhaul (U1), because the UX overhaul is animation
-   over a still-broken loop until handover + re-run-with-feedback
-   land.
+   ordering has changed twice:
+   - R-track ("does it fit a project I actually have?") now sits
+     above A-track, with **R0 (`workspace_mode`)** at the absolute
+     top. Without R0 the dogfooding loop is broken — agent edits
+     land in `/tmp` and the user can't test live in their own
+     repo, which is the single biggest "doesn't match a normal
+     dev workflow" complaint.
+   - Within A-track, autonomy (A1–A4) precedes the RUN page UX
+     overhaul (U1), because UX over a still-broken loop is
+     animation.
 2. The user's working tree is full of uncommitted cross-layer work
    (Draft state + scaffolding + UI rebuild). Decide whether to
    commit it as-is (one big "submit-flow overhaul" commit) or
    split into the 10 numbered chunks above. Don't push yet without
    explicit user OK — two pairs of revert commits in recent
    history show the user wants control over what lands.
-3. **Start on A1 — close the handover read/write loop.** Without
-   it, "fresh session per session" leaks context every tick and the
-   8-hour-unattended use case stays fiction. Verify with a real
-   demo job under `codeless/.codeless/jobs/handover-resume/` where
-   stage 2 fails and stage 3's session resumes from handover.
-4. A2 (`add_job_note` + folding) is the smallest valuable next
-   change after A1 and unblocks U1. A3 (verify-fail policy) and
-   A4 (loop-level cost ceiling) round out the autonomy track.
-5. U1 (RUN page UX) and U2 (StageDetail wishlist) follow once
-   A1–A2 are in. U2 can run in parallel with A1 since the
-   handover synthesiser reads the same data the wishlist cards
-   render.
+3. **Start on R0 — `workspace_mode: in_repo | worktree`.** A day
+   or two of work, schema-additive, default `in_repo` flips the
+   dogfooding loop from "edit in `/tmp`, test by merging" to "edit
+   on a branch in the user's real repo, test the way the user
+   already tests."
+4. Then **A0 — intra-stage session continuation.** This is the
+   "pause / ask / resume / raise-the-cap" fix that makes codeless
+   feel like Claude Code instead of an alien tool. Without it,
+   every mid-stage interruption costs another $5 to re-derive the
+   codebase. Schema-additive (`Paused` job/stage status, a
+   `resume_job` RPC, `--continue <session_id>` passthrough to the
+   Claude wrapper), CLI-Claude-only first slice. The captured
+   `Stage.session_id` on `feat/stage-session-id` becomes
+   load-bearing here, not observability — update its docstring as
+   part of A0 to reflect that.
+5. **A1 — cross-stage handover.** With A0 in place, A1 has a
+   crisper job: the *next stage* needs to onboard from the
+   *previous stage*'s output. Cap-pauses and crashes are no
+   longer A1's problem; they're handled by A0. Verify with a real
+   demo job under `codeless/.codeless/jobs/handover-resume/`
+   where stage 1 commits, stage 2 opens fresh, reads the handover,
+   does its job correctly.
+6. A2 (`add_job_note` + folding), A3 (verify-fail policy), A4
+   (loop-level cost ceiling) round out the autonomy track.
+7. U1 (RUN page UX) and U2 (StageDetail wishlist) follow once
+   R0 + A0 + A1–A2 are in. U2 can run in parallel with A1 since
+   the handover synthesiser reads the same data the wishlist
+   cards render.
+8. R1–R4 (per-stage cwd/verify, path scoping, git-history
+   hygiene, dev-server live-reload) sit behind R0 and pick up
+   when a real polyglot project is the next test target. **R3
+   (git history hygiene) is the trust gate** — without it,
+   developers won't merge agent work onto serious projects, so
+   land it before the first overnight run on anything that isn't a
+   throwaway repo.

@@ -10,7 +10,7 @@ Two constraints drive every architectural decision below.
 
 **Constraint 1 — many concurrent jobs across many repos from a browser.** One person, a core running on a remote machine (home box, VPS, Mac mini), the browser as a thin view. This rules out a tab-resident AI loop and forces the runtime into the Rust core.
 
-**Constraint 2 — a coder loop must run unsupervised for hours.** A developer starts a long job before bed and wakes up to commits on a branch, a `handover.md` showing what landed and what halted, and a few `REVIEW` stages at the points where the loop decided it needed a human. This is the difference between "agent that codes" and "agent that codes for as long as it takes". It forces *fresh session per session* — every session is a disposable agent that re-reads the handover from disk and the git history from the remote, then exits. Anything in-memory between sessions is dead by morning. See [`LOOP-CODER.md`](./LOOP-CODER.md) for the full design intent, and [`JOB-MODEL.md`](./JOB-MODEL.md) for the user-facing handover/log contract. The current build-out of this constraint — handover read/write, re-run with feedback, verify-fail policy, loop-level cost ceiling, and (last) goal-to-stages planning — is tracked as the **autonomy track (A1–A5)** in [`PROGRESS.md` "Next steps"](./PROGRESS.md#next-steps).
+**Constraint 2 — a coder loop must run unsupervised for hours.** A developer starts a long job before bed and wakes up to commits on a branch, a `handover.md` showing what landed and what halted, and a few `REVIEW` stages at the points where the loop decided it needed a human. This is the difference between "agent that codes" and "agent that codes for as long as it takes". It forces *fresh session per stage* — every new stage opens with a disposable agent that re-reads the previous stage's handover from disk and the git history from the remote, then runs to its next checkpoint. Within a stage the runner session is continuous (pauses, cap bumps, "ask a question" all keep the same conversation, per hard rule #1 below); across a stage boundary the session always resets, so anything that needed to survive into the next stage has to be on disk or in the commit, not in the agent's head. See [`LOOP-CODER.md`](./LOOP-CODER.md) for the full design intent, and [`JOB-MODEL.md`](./JOB-MODEL.md) for the user-facing handover/log contract. The current build-out of this constraint — handover read/write, re-run with feedback, verify-fail policy, loop-level cost ceiling, and (last) goal-to-stages planning — is tracked as the **autonomy track (A1–A5)** in [`PROGRESS.md` "Next steps"](./PROGRESS.md#next-steps). A separate **real-codebases track (R0–R4)** sits ahead of autonomy and covers "does this fit a project I actually have?" — workspace mode (in_repo vs worktree), per-stage cwd, path scoping, git history hygiene, and dev-server live-reload. R0 is the floor: without `workspace_mode: in_repo` as a first-class option, the single-developer dogfooding loop doesn't match a normal git workflow at all.
 
 Constraint 1 alone is enough to rule out the inherited Terax model. In Terax today the AI loop runs *inside the webview* using the Vercel AI SDK in TypeScript, with each user's API key going from the browser/webview straight to OpenAI/Anthropic/etc. That model is fine for a single-user desktop tool with one job at a time. It does not work for what we want:
 
@@ -45,10 +45,10 @@ The hierarchy is load-bearing — every contributor will need this. Levels, in o
 | **Repo** | A managed git repository: clone path, default branch, auth method, per-repo caps. Long-lived. | Removed by user (`codeless repo remove`). | `repo-added`, `repo-removed`, `repo-updated` |
 | **Job** | One unit of work the user kicked off, scoped to one repo, executed in one worktree on one branch. Owns the cost cap, the wall-clock cap, the chosen runner, the YAML template (if any). | `completed` (all stages green), `failed` (a stage failed and no retry policy applied), `stopped` (user/cap), `awaiting-review` then resumed. | `job-queued`, `job-promoted`, `job-started`, `job-completed`, `job-stopped`, `job-failed` |
 | **Stage** | A verify-gated chunk of a job — a coherent body of work that ends at a checkpoint (build passes, tests pass, lint clean, custom verify command succeeds). One stage can contain many tasks. | `passed` (verify green), `failed` (verify red), `awaiting-review` (gate). | `stage-started`, `verify-started`, `verify-passed`, `verify-failed`, `stage-completed` |
-| **Task** | One atomic unit of runner work inside a stage — typically one provider session (one CLI invocation, or one REST conversation turn-set). The smallest re-runnable thing. | `completed`, `failed`, `cancelled` (cost/time cap or user). | `task-enqueued` (carries `depends_on`), `task-started`, `tool-call`, `tool-approval-requested`, `ai-token`, `ai-message-complete`, `task-completed` |
+| **Task** | One runner invocation inside a stage — one CLI spawn or one REST conversation turn-set. Multiple tasks within the **same stage** share a runner session (the second task passes `--continue <session_id>`; see hard rule #1), so a cap-paused stage resumes mid-conversation rather than re-deriving. The smallest re-runnable unit at the *invocation* level; cross-stage continuity is the stage's concern, not the task's. | `completed`, `failed`, `cancelled` (cost/time cap or user — `cancelled` mid-stage is a pause, not a stop). | `task-enqueued` (carries `depends_on`), `task-started`, `tool-call`, `tool-approval-requested`, `ai-token`, `ai-message-complete`, `task-completed` |
 | **Review** | A *state* on a Stage (or, rarely, on a Job), not a node in the tree. When a stage hits a review gate, a `Review` row is created with status `pending`; user actions (`approve`, `comment`, `stop`, `rerun`) drive the stage forward. | `approved`, `rejected`, `stopped`, `rerun-requested`. | `review-requested`, `review-approved`, `review-commented`, `review-stopped` |
 
-Tasks are the atomic re-runnable unit. Stages are the verify-gated unit. Reviews are gates, not nodes — this matters for the data model: `reviews` is a table joined to `stages` (with `stage_id`), not a separate level in the tree.
+Tasks are the atomic re-runnable invocation unit and the smallest observability granule. Stages are the verify-gated unit *and* the session-continuity unit — a paused / resumed / cap-bumped stage continues the same runner conversation, while a new stage opens a fresh one (per hard rule #1 below). Reviews are gates, not nodes — this matters for the data model: `reviews` is a table joined to `stages` (with `stage_id`), not a separate level in the tree.
 
 A job can:
 
@@ -179,7 +179,9 @@ $XDG_DATA_HOME/codeless/
 ├── repos/
 │   └── <repo-name>/.git         # shared object storage per repo
 └── worktrees/
-    └── <job-name>-<id>/         # one git worktree per job, reaped on completion
+    └── <job-name>-<id>/         # `worktree`-mode jobs only; reaped on completion.
+                                 # `in_repo`-mode jobs (the default) edit the
+                                 # user's existing clone directly — no entry here.
 ```
 
 Per-job state that survives sessions — `.codeless/jobs/<name>.yaml`
@@ -270,7 +272,7 @@ Example — `task-enqueued`, linear vs. DAG-ready:
 
 If a Tauri 2 mobile feature genuinely doesn't work, write a thin native Tauri plugin — do **not** fork to a second UI framework. The "one React codebase, four shells" promise dies the day a `Foo.swift` or `Foo.kt` UI lands. (Cross-referenced from open questions; surfaced as a Rule because violations are silent and irreversible.)
 
-## Repos — first-class entity, one worktree per job
+## Repos — first-class entity, workspace per job (in_repo or worktree)
 
 You manage **many repos** with Codeless, and **many jobs run concurrently on the same repo**. That makes repos a first-class entity in the data model and forces a real answer to the workspace question.
 
@@ -289,45 +291,84 @@ A `repos` table sits alongside `jobs`, with each job carrying a `repo_id`. A rep
 
 Listing jobs is filterable by repo (`codeless jobs --repo foo`, `GET /api/jobs?repo=foo`). The browser shows a repo-grouped view by default.
 
-### Workspace = one `git worktree` per job
+### Workspace mode — `in_repo` (default) or `worktree` (opt-in)
 
-Each job runs in its own isolated checkout, created via `git worktree add` from the repo's shared `.git`. This gives us:
+A job picks where its edits live via `Job.workspace_mode`:
 
-- **Instant startup** — no full clone; `git worktree add` is near-instant even on large repos.
-- **True isolation** — two jobs on the same repo cannot collide on the working dir, index, or branch.
-- **Shared object storage** — one copy of git history on disk, regardless of how many jobs are running.
-- **Trivial cleanup** — `git worktree remove` on job completion. Failed worktrees are reaped on core restart.
+| Mode | Where edits land | When it's right |
+|---|---|---|
+| `in_repo` (**default**) | The user's existing local clone of the repo, on a fresh branch `codeless/<job-name>` created at submit. Files the agent edits are the files in the user's normal working copy. | The developer is at their desk, watching one job, wants their normal git tooling to "just work" — `git log`, `git diff`, IDE, dev server — all pointed at the agent's branch the same way they would for a human contributor's branch. The dogfooding default. |
+| `worktree` | A separate `git worktree add` checkout (e.g. `/tmp/codeless-worktrees/<job-id>` or under `.codeless/worktrees/`), on the same job-specific branch. Same `.git`, different working dir. | Many jobs run concurrently against the same repo (the overnight / fleet use case), or the user wants strong physical isolation so a runaway job can't scribble in the checkout they're editing. The original constraint-2 use case. |
 
-The alternative (shared working tree) is unworkable for concurrent jobs on the same repo. The alternative (full clone per job) wastes disk and time. Worktrees are the right answer.
+Both modes commit to a job-specific branch
+`codeless/<job-name>` (or `codeless/<slug>-<id>` if the slug
+collides). Merging back into the user's target branch is an
+explicit step the user (or a follow-up job) performs — squash,
+rebase, or `--no-ff` is the user's call, not the system's, so the
+project's git history stays the user's history.
 
-Each worktree is created on a job-specific branch
-`codeless/<job-name>-<id>` (e.g. `codeless/user-profile-42`), so the
-result is reviewable as a normal branch / PR at the end. The job
-name comes from the YAML; the id is the SQLite row id. Merging
-back into the user's target branch is an explicit step the user
-(or a follow-up job) performs.
+**Concurrency rule.** Only **one `in_repo` job per repo at a time** —
+attempting to submit a second one returns a clear conflict ("repo
+X is already in use by job Y in `in_repo` mode; stop it or submit
+as `worktree`"). `worktree` jobs have no such limit and bound only
+on the global / per-repo concurrency caps.
 
-**The worktree persists for the job's lifetime, not the session's.**
-A long unsupervised run is many fresh sessions firing in sequence
-against the same worktree — every session attaches to the same
-checkout, sees what the previous session committed, picks up where
-it left off via `runs/<name>/handover.md`. The worktree is reaped
-only when the job reaches a terminal state (`completed`, `failed`,
-`stopped`) — never between sessions.
+**The chosen workspace persists for the job's lifetime, not the
+session's.** A long unsupervised run is many fresh sessions firing
+in sequence against the same checkout — every session attaches to
+the same working dir, sees what the previous session committed,
+picks up where it left off via `runs/<name>/handover.md`. The
+workspace is reaped only when the job reaches a terminal state
+(`completed`, `failed`, `stopped`) — never between sessions. In
+`in_repo` mode "reaped" means the branch is left in place for the
+user to merge or delete; in `worktree` mode the worktree directory
+is `git worktree remove`'d (the branch still survives in the
+shared `.git` for review).
+
+**Why `in_repo` is the default.** Worktrees solve a real
+concurrency problem but introduce a foreign-checkout step that
+makes the most common single-developer flow feel wrong — the user
+can't `cd` into their own repo to test the change, can't see the
+branch in `git branch`, can't use their normal dev server against
+agent edits without first rebuilding from a `/tmp/...` path. For
+the dogfooding and personal-project use cases that's friction with
+no payoff, because there's only one job running anyway. Worktrees
+remain a first-class mode because the overnight-fleet use case
+needs them; they're just no longer the default.
+
+The roadmap entry that lands `workspace_mode` is
+[`PROGRESS.md` "Next steps" R0](./PROGRESS.md#r0--workspace_mode-in_repo--worktree-s-blocking-real-dogfooding).
 
 ### Hard rules for the coding runner
 
 Independent of which runner is configured, these rules are
 load-bearing for the long-run constraint:
 
-1. **Never carry a runner session token across sessions.** No
-   `resume_id`, no `--continue`, no provider-side conversation
-   state. Each session is a fresh agent *and* a fresh runner
-   invocation. The runner re-onboards from the worktree, the
-   handover, and the repo's `CLAUDE.md` / `CODELESS.md`. This is
-   what keeps context bounded across an 8-hour run. See
-   [`LOOP-CODER.md`](./LOOP-CODER.md) "What blocks this today" for
-   the failure mode this prevents.
+1. **The stage is the session boundary, not every runner invocation.**
+   - *Within a stage* a runner session is continuous. Cost-cap and
+     wall-clock-cap mid-stage are **pauses**, not terminations; the
+     user stopping a stage to ask a question is a **pause**; a
+     daemon restart while a stage is in flight is recoverable. The
+     runtime captures `RunResult.session_id` on the stage row (see
+     `Stage.session_id`) and the next runner invocation against
+     that stage passes `--continue <session_id>` (or the
+     provider-equivalent) so the agent picks up the same
+     conversation: same in-context files, same half-formed plan,
+     same "I just considered approach X and rejected it." This is
+     what makes pause / ask / resume / raise-the-cap feel like
+     Claude Code instead of an alien tool, and it stops every
+     interruption from costing a fresh codebase-exploration.
+   - *Across a stage boundary* the session always resets. The
+     fresh agent re-onboards from the workspace (whichever
+     `workspace_mode` the job chose), the previous stage's
+     `handover.md`, and the repo's `CLAUDE.md` / `CODELESS.md`.
+     This is what keeps context bounded across an 8-hour run —
+     stages bound context; sessions do not have to. A stage's
+     `session_id` is **never** reused by a later stage.
+   - The user controls stage boundaries (commit + verify gate);
+     codeless does not silently roll the session over. See
+     [`LOOP-CODER.md`](./LOOP-CODER.md) "What blocks this today"
+     for the failure mode the cross-stage reset prevents.
 2. **Push after every stage, never defer.** A session that commits
    but doesn't push leaves the next session reading a stale remote.
 3. **A failed verify is operator-visible.** The default behaviour is
