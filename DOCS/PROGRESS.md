@@ -787,38 +787,64 @@ Touchpoints:
   `set_limits` RPCs.
 - UI: dashboard header shows cumulative-vs-ceiling bar.
 
-### U1 — Re-run + RUN page UX overhaul (M-L, depends on A1+A2)
+### U1 — Chat-as-control center for a job (M-L, depends on A0 for full power; ships in degraded form earlier)
 
-What the user originally asked for in this session. Deferred behind
-A1 + A2 because: without handover and `add_job_note`, the RUN page
-is just *animations over a still-broken loop*. With them, the RUN
-page becomes the place where you watch unattended work resume,
-which is the actual product.
+The design supersedes the original "RunPane overhaul" framing.
+**The chat window becomes the control center** — every event the
+agent emits and every action the user takes lives in one
+scrolling, live conversation, with run / pause / stop / resume
+inline in the composer. The right pane is ambient signal
+(status, cost, runtime, drill-down tabs), not the primary
+surface. Same UX shape as Claude Code / Cursor / Copilot, because
+that shape is the one that survives "I look away for a minute,
+come back, pick up."
 
-Approach (unchanged from the previous snapshot):
+Full load-bearing decisions, layout, phasing, and SSE
+reliability fixes are in [`JOBS-UX.md`](./JOBS-UX.md). Summary
+of the five phases there:
 
-- Build a `RunPane` (replaces today's Timeline section as the RUN
-  default landing). Live SSE-driven view of the job's lifecycle:
-  Draft → Queued → Running → (Stages flowing in) → Completed.
-- Visual progress between states: animated lines connecting status
-  nodes, framer-motion (`motion/react`) transitions when a stage
-  flips state.
-- `[run]` and `[re-run ▾]` move to the RunPane. Header keeps the
-  badge + cost/time totals only.
-- Re-run navigates to the new job's RunPane, which immediately
-  shows "starting…" state.
-- Once A1 + A2 land, the RunPane also surfaces the most recent
-  handover excerpt and the operator's last feedback note inline,
-  so resuming a job tells you *why* this session is firing.
+1. **SSE reliability** (S, 1-2 days) — `id: <cursor>` on every
+   SSE event, `Last-Event-ID` honouring, heartbeats, connection-
+   state badge, live elapsed-time tick, `task-completed`
+   subscription for live cost. Ships standalone; biggest
+   immediate win for any existing job. Fixes the "messages stop
+   coming and I refresh" complaint that was the loudest signal
+   in the 2026-05-13 dogfood session.
+2. **ConversationPane** (M-L, 3-5 days) — unify timeline + chat
+   + stage transitions into one streaming pane.
+3. **Composer with state-driven actions** (M, 2-3 days) — move
+   run/pause/stop into the composer; state machine drives the
+   primary button label.
+4. **Right-pane refactor** (S-M, 2 days) — status + tabs as
+   ambient signal; spec editing moves out of the per-job tabs.
+5. **A0 integration** — flips pause/resume from degraded to real
+   when the A0 runtime work lands. No UI rewrite needed.
+
+The original framing's claim was correct ("UX over a broken loop
+is animation") and the same logic now gates *parts* of U1 on A0:
+phases 1-4 ship before A0 with the composer's pause / resume
+buttons in a degraded "queue for next session" mode; phase 5
+upgrades them in place once A0 is done.
+
+Old "Approach" notes for the original RunPane framing have been
+folded into [`JOBS-UX.md`](./JOBS-UX.md) — see "Migration from
+the current implementation" there for how today's `RunPane` /
+`JobChat` / `StageDetail` components map onto the new layout.
 
 ### U2 — Wishlist items for `StageDetail` (M, parallelisable with A1)
 
-Placeholder cards exist; wire the data. These compose with A1 —
-the handover synthesiser reads commits, final messages, and tool
-calls anyway, so the data plumbing is shared.
+Placeholder cards exist (see `StageDetail.tsx`); wire the data.
+These compose with A1 — the handover synthesiser reads commits,
+final messages, and tool calls anyway, so the data plumbing is
+shared. Under the U1 redesign these cards live inside the
+right-pane Stages tab; the card *shape* survives, the parent
+surface changes.
 
-1. **Claude session ID** per stage. `RunResult.session_id` flows
-   out of ai-runner already; capture on `Stage` row + new event.
+1. **Claude session ID** per stage. **Done** on
+   `feat/stage-session-id` (`NubeDev/codeless`): `Stage.session_id`
+   wire field, `Event::StageSessionCaptured`, `StageRecorder`
+   capture, `Captured` card in `StageDetail`. Migration `0003`
+   ships the SQLite column. Pending merge to master.
 2. **Per-stage commits.** `git log <branch>` joined to stage
    timestamps.
 3. **Tool-call ribbon.** Roll up `Event::ToolCall` per stage at
