@@ -1,6 +1,16 @@
 name: ap
-goal: "TODO: describe what success looks like for this job."
+goal: "Land Goal 4 (Phase 1.5 - message plane events+logs) and Goal 5 (Phase 2 - commands, api, HTTP host-routing) per hackline SCOPE.md Section 13, each as one stage. Reuse the docs in DOCS/ and the session-note pattern from DOCS/sessions/2026-05-14-goal3-auth-cli.md instead of restating the design here."
+
 docs:
-  - CHAT.md
+  - SCOPE.md
+  - WORKFLOW.md
+
 stages:
-  - "TODO: rename me to the first stage's title"
+  - title: "goal 4 - message plane: events + logs (SCOPE.md Phase 1.5). SDK publish_event/publish_log, gateway fan-in subscribers on hackline/*/msg/event/** and hackline/*/msg/log/**, events+logs tables with ring-buffer pruning, GET /v1/events, GET /v1/log, SSE streams, hackline events tail CLI. End with DOCS/sessions/2026-05-14-goal4-message-plane.md filled in to the same shape as goal3-auth-cli.md, and cargo check + cargo test clean."
+    docs:
+      - SCOPE.md
+      - WORKFLOW.md
+  - title: "goal 5 - commands, api, HTTP host-routing (SCOPE.md Phase 2). cmd_outbox table and gateway delivery loop, SDK subscribe_cmd with ack semantics, POST /v1/devices/:id/cmd/:topic, SDK serve_api + POST /v1/devices/:id/api/:topic synchronous round-trip, axum HTTP host-routing for device-<id>.cloud.example.com with WebSocket passthrough, customer-role + per-device scope enforced at the edge. End with DOCS/sessions/2026-05-14-goal5-cmd-api-host-routing.md and cargo check + cargo test clean."
+    docs:
+      - SCOPE.md
+      - WORKFLOW.md
