@@ -23,6 +23,7 @@ pub struct Tunnel {
 #[derive(Debug, Clone)]
 pub struct TunnelWithZid {
     pub id: i64,
+    pub device_id: i64,
     pub zid: String,
     pub kind: String,
     pub local_port: u16,
@@ -78,7 +79,7 @@ pub fn delete(conn: &Connection, id: i64) -> Result<bool, GatewayError> {
 /// tunnel manager to spin up listeners.
 pub fn list_active_tcp(conn: &Connection) -> Result<Vec<TunnelWithZid>, GatewayError> {
     let mut stmt = conn.prepare(
-        "SELECT t.id, d.zid, t.kind, t.local_port, t.public_port, t.enabled
+        "SELECT t.id, t.device_id, d.zid, t.kind, t.local_port, t.public_port, t.enabled
          FROM tunnels t
          JOIN devices d ON d.id = t.device_id
          WHERE t.enabled = 1 AND t.kind = 'tcp' AND t.public_port IS NOT NULL",
@@ -86,11 +87,12 @@ pub fn list_active_tcp(conn: &Connection) -> Result<Vec<TunnelWithZid>, GatewayE
     let rows = stmt.query_map([], |row| {
         Ok(TunnelWithZid {
             id: row.get(0)?,
-            zid: row.get(1)?,
-            kind: row.get(2)?,
-            local_port: row.get::<_, i64>(3)? as u16,
-            public_port: row.get::<_, i64>(4)? as u16,
-            enabled: row.get(5)?,
+            device_id: row.get(1)?,
+            zid: row.get(2)?,
+            kind: row.get(3)?,
+            local_port: row.get::<_, i64>(4)? as u16,
+            public_port: row.get::<_, i64>(5)? as u16,
+            enabled: row.get(6)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)

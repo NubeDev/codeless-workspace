@@ -10,6 +10,7 @@ use zenoh::Session;
 
 use crate::db::pool::DbPool;
 use crate::db::tunnels;
+use crate::metrics::Metrics;
 use crate::tunnel::tcp_listener;
 
 /// Sent by API handlers when a tunnel is created or deleted.
@@ -24,6 +25,7 @@ pub enum TunnelEvent {
 pub async fn run(
     db: DbPool,
     session: Arc<Session>,
+    metrics: Metrics,
     mut rx: mpsc::Receiver<TunnelEvent>,
 ) -> Result<(), crate::error::GatewayError> {
     let conn = db.get()?;
@@ -37,14 +39,14 @@ pub async fn run(
     }
 
     for t in active {
-        spawn_listener(&session, &t);
+        spawn_listener(&session, &db, &metrics, &t);
     }
 
     while let Some(event) = rx.recv().await {
         match event {
             TunnelEvent::Added(t) => {
                 info!(id = t.id, port = t.public_port, "hot-starting tunnel listener");
-                spawn_listener(&session, &t);
+                spawn_listener(&session, &db, &metrics, &t);
             }
             TunnelEvent::Removed(id) => {
                 info!(id, "tunnel removed (listener will close on next connection attempt)");
@@ -55,16 +57,36 @@ pub async fn run(
     Ok(())
 }
 
-fn spawn_listener(session: &Arc<Session>, t: &tunnels::TunnelWithZid) {
+fn spawn_listener(
+    session: &Arc<Session>,
+    db: &DbPool,
+    metrics: &Metrics,
+    t: &tunnels::TunnelWithZid,
+) {
     let Ok(zid) = Zid::new(&t.zid) else {
         error!(zid = %t.zid, "invalid ZID in tunnels table, skipping");
         return;
     };
     let s = session.clone();
+    let db = db.clone();
+    let metrics = metrics.clone();
+    let tunnel_id = t.id;
+    let device_id = t.device_id;
     let local_port = t.local_port;
     let public_port = t.public_port;
     tokio::spawn(async move {
-        if let Err(e) = tcp_listener::run_tcp_listener(s, zid, local_port, public_port).await {
+        if let Err(e) = tcp_listener::run_tcp_listener(
+            s,
+            db,
+            metrics,
+            tunnel_id,
+            device_id,
+            zid,
+            local_port,
+            public_port,
+        )
+        .await
+        {
             error!(listen_port = public_port, "tunnel listener failed: {e}");
         }
     });

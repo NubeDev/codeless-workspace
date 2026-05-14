@@ -39,5 +39,13 @@ pub fn build(state: AppState) -> Router {
             "/v1/devices/{id}/api/{topic}",
             post(super::api_call::call::handler),
         )
+        // Prometheus exposition (SCOPE.md §10.2). Admin-token gated
+        // via the existing AuthedUser extractor.
+        .route("/metrics", get(super::metrics::handler))
+        // Static admin bundle. `/admin` is the canonical entry point;
+        // the asset routes serve the two referenced files.
+        .route("/admin", get(super::admin::index))
+        .route("/admin/", get(super::admin::index))
+        .route("/admin/{name}", get(super::admin::asset))
         .with_state(state)
 }

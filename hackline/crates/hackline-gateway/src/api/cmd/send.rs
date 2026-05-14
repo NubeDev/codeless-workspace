@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::auth::middleware::AuthedUser;
 use crate::auth::scope;
+use crate::db::audit;
 use crate::db::cmd_outbox::{self, CMD_DEFAULT_TTL_MS};
 use crate::error::GatewayError;
 use crate::state::AppState;
@@ -68,6 +69,28 @@ pub async fn handler(
     })
     .await
     .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
+
+    // `cmd.send` (SCOPE.md §7.2): record `cmd_id` + `topic` on the
+    // operator's behalf so the audit log can answer "who issued
+    // which command, when, against which device".
+    {
+        let db = state.db.clone();
+        let user_id = user.id;
+        let detail = serde_json::json!({ "cmd_id": cmd_id_str, "topic": topic }).to_string();
+        let _ = tokio::task::spawn_blocking(move || -> Result<(), GatewayError> {
+            let conn = db.get()?;
+            audit::insert(
+                &conn,
+                Some(user_id),
+                Some(device_id),
+                None,
+                "cmd.send",
+                Some(&detail),
+            )
+        })
+        .await;
+    }
+    state.metrics.inc_cmd("accepted");
 
     state.cmd_notifier.notify();
 

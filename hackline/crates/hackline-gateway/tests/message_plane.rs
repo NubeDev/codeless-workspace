@@ -75,7 +75,13 @@ async fn event_round_trip() -> anyhow::Result<()> {
 
     let bus = MsgBus::new();
     let mut rx = bus.subscribe();
-    let _fanin = msg_fanin::spawn(gw_session.clone(), db.clone(), bus.clone()).await?;
+    let _fanin = msg_fanin::spawn(
+        gw_session.clone(),
+        db.clone(),
+        bus.clone(),
+        hackline_gateway::metrics::Metrics::new(),
+    )
+    .await?;
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 

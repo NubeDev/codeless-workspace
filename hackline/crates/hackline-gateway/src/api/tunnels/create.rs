@@ -50,6 +50,7 @@ pub async fn handler(
             if let Ok(device) = tokio::task::spawn_blocking(move || devices::get(&conn, did)).await.unwrap() {
                 let twz = tunnels::TunnelWithZid {
                     id: tid,
+                    device_id: did,
                     zid: device.zid,
                     kind: "tcp".into(),
                     local_port: lp as u16,

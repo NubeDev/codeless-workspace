@@ -193,6 +193,26 @@ pub fn record_ack(
     Ok(n > 0)
 }
 
+/// Per-device pending depth, for the `hackline_cmd_outbox_depth`
+/// metric. Only devices with at least one un-acked row appear; the
+/// Prometheus formatter renders one labelled sample per entry.
+pub fn pending_depth_by_device(
+    conn: &Connection,
+) -> Result<std::collections::BTreeMap<String, i64>, GatewayError> {
+    let mut stmt = conn.prepare(
+        "SELECT device_id, COUNT(*) FROM cmd_outbox
+         WHERE ack_at IS NULL
+         GROUP BY device_id",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
+    let mut out = std::collections::BTreeMap::new();
+    for r in rows {
+        let (dev, n) = r?;
+        out.insert(dev.to_string(), n);
+    }
+    Ok(out)
+}
+
 /// Cancel a queued (still-pending) row. Returns false if the row
 /// already moved to `delivered` or `acked` — cancel is best-effort.
 pub fn cancel(conn: &Connection, cmd_id: &str) -> Result<bool, GatewayError> {

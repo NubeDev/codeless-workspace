@@ -22,6 +22,7 @@ use crate::db::logs;
 use crate::db::pool::DbPool;
 use crate::error::GatewayError;
 use crate::events_bus::{MsgBus, MsgEvent};
+use crate::metrics::Metrics;
 
 /// Declare the two wildcard subscribers and spawn one task per
 /// subscriber. Returns the join handles so `serve.rs` can include
@@ -30,6 +31,7 @@ pub async fn spawn(
     session: Arc<Session>,
     db: DbPool,
     bus: MsgBus,
+    metrics: Metrics,
 ) -> Result<Vec<JoinHandle<()>>, GatewayError> {
     let mut handles = Vec::with_capacity(2);
 
@@ -45,6 +47,7 @@ pub async fn spawn(
 
         let db = db.clone();
         let bus = bus.clone();
+        let metrics = metrics.clone();
         let handle = tokio::spawn(async move {
             loop {
                 match sub.recv_async().await {
@@ -52,7 +55,7 @@ pub async fn spawn(
                         let received_ke = sample.key_expr().as_str().to_owned();
                         let payload = sample.payload().to_bytes().to_vec();
                         if let Err(e) =
-                            handle_sample(&db, &bus, kind, &received_ke, &payload).await
+                            handle_sample(&db, &bus, &metrics, kind, &received_ke, &payload).await
                         {
                             warn!(ke = %received_ke, "fan-in drop: {e}");
                         }
@@ -72,6 +75,7 @@ pub async fn spawn(
 async fn handle_sample(
     db: &DbPool,
     bus: &MsgBus,
+    metrics: &Metrics,
     expected_kind: MsgKind,
     ke: &str,
     payload: &[u8],
@@ -140,6 +144,10 @@ async fn handle_sample(
     .await
     .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
 
+    match &result {
+        MsgEvent::Event(r) => metrics.inc_event(&r.topic),
+        MsgEvent::Log(r) => metrics.inc_log(&r.level),
+    }
     debug!(ke = %ke, "fan-in persisted + broadcast");
     bus.publish(result);
     Ok(())

@@ -32,6 +32,7 @@ use crate::db::cmd_outbox;
 use crate::db::devices;
 use crate::db::pool::DbPool;
 use crate::error::GatewayError;
+use crate::metrics::Metrics;
 
 /// Wakes the pusher task whenever a REST handler enqueues a cmd.
 /// Lives in `AppState` so handlers can call `notify_one()`.
@@ -58,6 +59,7 @@ pub async fn spawn(
     session: Arc<Session>,
     db: DbPool,
     notifier: CmdNotifier,
+    metrics: Metrics,
 ) -> Result<Vec<JoinHandle<()>>, GatewayError> {
     let mut handles = Vec::with_capacity(2);
 
@@ -68,13 +70,14 @@ pub async fn spawn(
     tracing::info!(ke = keyexpr::MSG_CMD_ACK_FANIN, "cmd-ack fan-in ready");
 
     let db_ack = db.clone();
+    let metrics_ack = metrics.clone();
     handles.push(tokio::spawn(async move {
         loop {
             match ack_sub.recv_async().await {
                 Ok(sample) => {
                     let ke = sample.key_expr().as_str().to_owned();
                     let bytes = sample.payload().to_bytes().to_vec();
-                    if let Err(e) = handle_ack(&db_ack, &ke, &bytes).await {
+                    if let Err(e) = handle_ack(&db_ack, &metrics_ack, &ke, &bytes).await {
                         warn!(ke = %ke, "cmd-ack drop: {e}");
                     }
                 }
@@ -89,9 +92,10 @@ pub async fn spawn(
     let db_push = db.clone();
     let sess_push = session.clone();
     let notif_push = notifier.clone();
+    let metrics_push = metrics.clone();
     handles.push(tokio::spawn(async move {
         loop {
-            if let Err(e) = drain_pending(&db_push, &sess_push).await {
+            if let Err(e) = drain_pending(&db_push, &sess_push, &metrics_push).await {
                 warn!("cmd pusher: {e}");
             }
             tokio::select! {
@@ -104,7 +108,12 @@ pub async fn spawn(
     Ok(handles)
 }
 
-async fn handle_ack(db: &DbPool, ke: &str, payload: &[u8]) -> Result<(), GatewayError> {
+async fn handle_ack(
+    db: &DbPool,
+    metrics: &Metrics,
+    ke: &str,
+    payload: &[u8],
+) -> Result<(), GatewayError> {
     let (_zid, cmd_id) = keyexpr::parse_msg_cmd_ack_keyexpr(ke)
         .ok_or_else(|| GatewayError::BadRequest(format!("unparsable cmd-ack keyexpr: {ke}")))?;
     let ack: CmdAck = serde_json::from_slice(payload)
@@ -126,11 +135,16 @@ async fn handle_ack(db: &DbPool, ke: &str, payload: &[u8]) -> Result<(), Gateway
     })
     .await
     .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
+    metrics.inc_cmd(ack.result.as_str());
     debug!(cmd_id = %ack.cmd_id, "cmd ack recorded");
     Ok(())
 }
 
-async fn drain_pending(db: &DbPool, session: &Arc<Session>) -> Result<(), GatewayError> {
+async fn drain_pending(
+    db: &DbPool,
+    session: &Arc<Session>,
+    metrics: &Metrics,
+) -> Result<(), GatewayError> {
     let now = now_ms();
     let db2 = db.clone();
     let rows: Vec<cmd_outbox::CmdRow> = tokio::task::spawn_blocking(move || {
@@ -201,6 +215,7 @@ async fn drain_pending(db: &DbPool, session: &Arc<Session>) -> Result<(), Gatewa
         match session.put(ke.clone(), ZBytes::from(bytes)).await {
             Ok(()) => {
                 debug!(cmd_id = %row.cmd_id, ke = %ke, "cmd published");
+                metrics.inc_cmd("delivered");
                 let db4 = db.clone();
                 let cmd_id_str = row.cmd_id.clone();
                 let _ = tokio::task::spawn_blocking(move || -> Result<(), GatewayError> {

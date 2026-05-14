@@ -16,8 +16,10 @@ use zenoh::bytes::ZBytes;
 
 use crate::auth::middleware::AuthedUser;
 use crate::auth::scope;
+use crate::db::audit;
 use crate::db::devices;
 use crate::error::GatewayError;
+use crate::metrics::Outcome;
 use crate::state::AppState;
 
 const DEFAULT_TIMEOUT_MS: u64 = 5_000;
@@ -83,6 +85,8 @@ pub async fn handler(
     let reply = match tokio::time::timeout(Duration::from_millis(timeout + 500), replies.recv_async()).await {
         Ok(Ok(r)) => r,
         Ok(Err(_)) => {
+            audit_api_call(&state, user.id, device_id, &topic, "device_unreachable").await;
+            state.metrics.inc_api_call(&topic, Outcome::Error);
             return Ok((
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({ "error": "device_unreachable" })),
@@ -90,6 +94,8 @@ pub async fn handler(
                 .into_response());
         }
         Err(_) => {
+            audit_api_call(&state, user.id, device_id, &topic, "device_timeout").await;
+            state.metrics.inc_api_call(&topic, Outcome::Error);
             return Ok((
                 StatusCode::GATEWAY_TIMEOUT,
                 Json(serde_json::json!({ "error": "device_timeout" })),
@@ -107,9 +113,38 @@ pub async fn handler(
     let api_reply: ApiReply = serde_json::from_slice(&sample_bytes)
         .map_err(|e| GatewayError::BadRequest(format!("reply decode: {e}")))?;
 
+    audit_api_call(&state, user.id, device_id, &topic, "ok").await;
+    state.metrics.inc_api_call(&topic, Outcome::Ok);
+
     Ok(Json(ApiCallResponse {
         content_type: api_reply.content_type,
         reply: api_reply.payload,
     })
     .into_response())
+}
+
+/// Emit one `api.call` audit row with the SCOPE.md §7.2 detail keys
+/// (`topic`, `outcome`). Best-effort — a failed audit insert must not
+/// hide the underlying RPC result from the operator.
+async fn audit_api_call(
+    state: &AppState,
+    user_id: i64,
+    device_id: i64,
+    topic: &str,
+    outcome: &str,
+) {
+    let db = state.db.clone();
+    let detail = serde_json::json!({ "topic": topic, "outcome": outcome }).to_string();
+    let _ = tokio::task::spawn_blocking(move || -> Result<(), GatewayError> {
+        let conn = db.get()?;
+        audit::insert(
+            &conn,
+            Some(user_id),
+            Some(device_id),
+            None,
+            "api.call",
+            Some(&detail),
+        )
+    })
+    .await;
 }

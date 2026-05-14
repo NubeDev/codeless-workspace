@@ -25,8 +25,10 @@ use tracing::{info, warn};
 use zenoh::bytes::ZBytes;
 use zenoh::Session;
 
+use crate::db::audit;
 use crate::db::pool::DbPool;
 use crate::error::GatewayError;
+use crate::metrics::{Metrics, Outcome};
 
 const HEADER_LIMIT: usize = 8 * 1024;
 const READ_BUF: usize = 8 * 1024;
@@ -36,6 +38,7 @@ const READ_BUF: usize = 8 * 1024;
 pub async fn run(
     db: DbPool,
     session: Arc<Session>,
+    metrics: Metrics,
     listen_addr: &str,
 ) -> Result<(), GatewayError> {
     let listener = TcpListener::bind(listen_addr).await?;
@@ -45,8 +48,10 @@ pub async fn run(
         let (tcp, peer) = listener.accept().await?;
         let db = db.clone();
         let session = session.clone();
+        let metrics = metrics.clone();
+        let peer_s = peer.to_string();
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(db, session, tcp).await {
+            if let Err(e) = handle_connection(db, session, metrics, tcp, peer_s).await {
                 warn!(%peer, "http host-router: {e}");
             }
         });
@@ -56,7 +61,9 @@ pub async fn run(
 async fn handle_connection(
     db: DbPool,
     session: Arc<Session>,
+    metrics: Metrics,
     mut tcp: tokio::net::TcpStream,
+    peer: String,
 ) -> Result<(), GatewayError> {
     let mut prefix = Vec::with_capacity(2048);
     let mut buf = [0u8; READ_BUF];
@@ -82,32 +89,96 @@ async fn handle_connection(
     };
 
     let host_lookup = host.clone();
-    let row = tokio::task::spawn_blocking(move || -> Result<Option<(String, i64)>, GatewayError> {
-        let conn = db.get()?;
-        let r = conn
-            .query_row(
-                "SELECT d.zid, t.local_port
-                   FROM tunnels t
-                   JOIN devices d ON d.id = t.device_id
-                  WHERE t.kind = 'http'
-                    AND t.public_hostname = ?1
-                    AND t.enabled = 1",
-                rusqlite::params![host_lookup],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()
-            .map_err(GatewayError::Db)?;
-        Ok(r)
-    })
+    let db_for_lookup = db.clone();
+    let row = tokio::task::spawn_blocking(
+        move || -> Result<Option<(String, i64, i64, i64)>, GatewayError> {
+            let conn = db_for_lookup.get()?;
+            let r = conn
+                .query_row(
+                    "SELECT d.zid, t.local_port, t.id, t.device_id
+                       FROM tunnels t
+                       JOIN devices d ON d.id = t.device_id
+                      WHERE t.kind = 'http'
+                        AND t.public_hostname = ?1
+                        AND t.enabled = 1",
+                    rusqlite::params![host_lookup],
+                    |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, i64>(1)?,
+                            r.get::<_, i64>(2)?,
+                            r.get::<_, i64>(3)?,
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(GatewayError::Db)?;
+            Ok(r)
+        },
+    )
     .await
     .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
 
-    let (zid_str, local_port) = row.ok_or_else(|| {
+    let (zid_str, local_port, tunnel_id, device_id) = row.ok_or_else(|| {
         GatewayError::BadRequest(format!("no http tunnel for host `{host}`"))
     })?;
     let zid = Zid::new(&zid_str).map_err(|e| GatewayError::BadRequest(e.to_string()))?;
 
-    bridge_with_prefix(&session, &zid, local_port as u16, tcp, prefix).await
+    metrics.inc_tunnel_active("http");
+    let request_id = uuid::Uuid::new_v4();
+    let ts_open = now_ms();
+    let audit_id = {
+        let db = db.clone();
+        let rid = request_id.to_string();
+        let peer_owned = peer.clone();
+        tokio::task::spawn_blocking(move || -> Result<i64, GatewayError> {
+            let conn = db.get()?;
+            audit::insert_tunnel_session_open(
+                &conn,
+                device_id,
+                Some(tunnel_id),
+                &rid,
+                Some(&peer_owned),
+                ts_open,
+            )
+        })
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+    };
+
+    let bridge_result =
+        bridge_with_prefix(&session, &zid, local_port as u16, tcp, prefix, request_id).await;
+
+    metrics.dec_tunnel_active("http");
+
+    let (bytes_up, bytes_down, outcome, ret) = match bridge_result {
+        Ok((up, down)) => (up, down, Outcome::Ok, Ok(())),
+        Err(e) => (0u64, 0u64, Outcome::Error, Err(e)),
+    };
+
+    metrics.inc_tunnel_session("http", outcome);
+    metrics.add_tunnel_bytes(bytes_up, bytes_down);
+
+    if let Some(id) = audit_id {
+        let db = db.clone();
+        let ts_close = now_ms();
+        let _ = tokio::task::spawn_blocking(move || -> Result<(), GatewayError> {
+            let conn = db.get()?;
+            audit::finalize_tunnel_session(&conn, id, bytes_up, bytes_down, ts_close)
+        })
+        .await;
+    }
+
+    ret
+}
+
+fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Open a bridge to the device's local HTTP port and stream bytes
@@ -119,10 +190,13 @@ async fn bridge_with_prefix(
     port: u16,
     tcp: tokio::net::TcpStream,
     prefix: Vec<u8>,
-) -> Result<(), GatewayError> {
+    request_id: uuid::Uuid,
+) -> Result<(u64, u64), GatewayError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
     let (mut tcp_read, mut tcp_write) = tcp.into_split();
 
-    let request_id = uuid::Uuid::new_v4();
     let req = hackline_proto::connect::ConnectRequest {
         request_id,
         peer: None,
@@ -166,13 +240,18 @@ async fn bridge_with_prefix(
         .await
         .map_err(GatewayError::Zenoh)?;
 
+    let up = Arc::new(AtomicU64::new(0));
+    let down = Arc::new(AtomicU64::new(0));
+
     if !prefix.is_empty() {
+        up.fetch_add(prefix.len() as u64, Ordering::Relaxed);
         publisher
             .put(ZBytes::from(prefix))
             .await
             .map_err(GatewayError::Zenoh)?;
     }
 
+    let up_in = up.clone();
     let tcp_to_zenoh = tokio::spawn(async move {
         let mut b = vec![0u8; 32 * 1024];
         loop {
@@ -182,6 +261,7 @@ async fn bridge_with_prefix(
                     break;
                 }
                 Ok(n) => {
+                    up_in.fetch_add(n as u64, Ordering::Relaxed);
                     if publisher.put(ZBytes::from(b[..n].to_vec())).await.is_err() {
                         break;
                     }
@@ -194,6 +274,7 @@ async fn bridge_with_prefix(
         }
     });
 
+    let down_in = down.clone();
     let zenoh_to_tcp = tokio::spawn(async move {
         loop {
             let sample = match subscriber.recv_async().await {
@@ -204,6 +285,7 @@ async fn bridge_with_prefix(
             if bytes.is_empty() {
                 break;
             }
+            down_in.fetch_add(bytes.len() as u64, Ordering::Relaxed);
             if tcp_write.write_all(&bytes).await.is_err() {
                 break;
             }
@@ -212,7 +294,7 @@ async fn bridge_with_prefix(
     });
 
     let _ = tokio::join!(tcp_to_zenoh, zenoh_to_tcp);
-    Ok(())
+    Ok((up.load(Ordering::Relaxed), down.load(Ordering::Relaxed)))
 }
 
 fn parse_host_header(buf: &[u8]) -> Option<String> {

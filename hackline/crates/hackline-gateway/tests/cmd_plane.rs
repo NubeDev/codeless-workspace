@@ -69,7 +69,13 @@ async fn cmd_round_trip() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(400)).await;
 
     let notifier = CmdNotifier::new();
-    let _handles = cmd_delivery::spawn(gw_session.clone(), db.clone(), notifier.clone()).await?;
+    let _handles = cmd_delivery::spawn(
+        gw_session.clone(),
+        db.clone(),
+        notifier.clone(),
+        hackline_gateway::metrics::Metrics::new(),
+    )
+    .await?;
 
     let zid = Zid::new(device_zid)?;
     let client = ClientSession::from_session(dev_session.clone(), zid.clone());

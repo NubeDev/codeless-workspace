@@ -8,6 +8,7 @@ use hackline_gateway::config::GatewayConfig;
 use hackline_gateway::db::{claim, migrations, pool};
 use hackline_gateway::cmd_delivery::{self, CmdNotifier};
 use hackline_gateway::events_bus::MsgBus;
+use hackline_gateway::metrics::Metrics;
 use hackline_gateway::msg_fanin;
 use hackline_gateway::state::AppState;
 use hackline_gateway::tunnel::{http_router, manager};
@@ -56,13 +57,20 @@ async fn main() -> anyhow::Result<()> {
 
     let (tunnel_tx, tunnel_rx) = tokio::sync::mpsc::channel(64);
 
+    let metrics = Metrics::new();
+
     let msg_bus = MsgBus::new();
     let _fanin_handles =
-        msg_fanin::spawn(session.clone(), db.clone(), msg_bus.clone()).await?;
+        msg_fanin::spawn(session.clone(), db.clone(), msg_bus.clone(), metrics.clone()).await?;
 
     let cmd_notifier = CmdNotifier::new();
-    let _cmd_handles =
-        cmd_delivery::spawn(session.clone(), db.clone(), cmd_notifier.clone()).await?;
+    let _cmd_handles = cmd_delivery::spawn(
+        session.clone(),
+        db.clone(),
+        cmd_notifier.clone(),
+        metrics.clone(),
+    )
+    .await?;
 
     let state = AppState {
         db: db.clone(),
@@ -70,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
         tunnel_tx,
         msg_bus,
         cmd_notifier,
+        metrics: metrics.clone(),
     };
 
     let listen_addr = cfg.listen.as_deref().unwrap_or("127.0.0.1:8080");
@@ -86,10 +95,11 @@ async fn main() -> anyhow::Result<()> {
     let http_router_fut = {
         let db = db.clone();
         let session = session.clone();
+        let metrics = metrics.clone();
         let addr = cfg.http_listen.clone();
         async move {
             match addr {
-                Some(a) => http_router::run(db, session, &a).await,
+                Some(a) => http_router::run(db, session, metrics, &a).await,
                 None => std::future::pending::<Result<(), _>>().await,
             }
         }
@@ -99,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
         result = axum::serve(listener, app) => {
             result?;
         }
-        result = manager::run(db, session, tunnel_rx) => {
+        result = manager::run(db, session, metrics, tunnel_rx) => {
             result?;
         }
         result = http_router_fut => {

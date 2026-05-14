@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 use crate::cmd_delivery::CmdNotifier;
 use crate::db::pool::DbPool;
 use crate::events_bus::MsgBus;
+use crate::metrics::Metrics;
 use crate::tunnel::manager::TunnelEvent;
 
 #[derive(Clone)]
@@ -19,4 +20,5 @@ pub struct AppState {
     pub tunnel_tx: mpsc::Sender<TunnelEvent>,
     pub msg_bus: MsgBus,
     pub cmd_notifier: CmdNotifier,
+    pub metrics: Metrics,
 }

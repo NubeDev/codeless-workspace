@@ -21,6 +21,18 @@ const READ_BUF: usize = 32 * 1024;
 const ACK_TIMEOUT: Duration = Duration::from_secs(10);
 const QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Per-direction byte totals observed by `run_bridge`. The gateway
+/// uses these to finalise the `tunnel.session` audit row at close.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BridgeBytes {
+    /// gateway→device (TCP read on the public listener, pumped onto
+    /// the Zenoh publisher).
+    pub up: u64,
+    /// device→gateway (Zenoh subscriber payloads, pumped onto the
+    /// public TCP write half).
+    pub down: u64,
+}
+
 /// Agent side: accept a connect query, open a local TCP socket, and
 /// run the byte bridge until either side closes.
 pub async fn accept_bridge(
@@ -72,7 +84,7 @@ pub async fn accept_bridge(
     let ke_from_gw = keyexpr::stream_gw(zid, &request_id);
     let ke_to_gw = keyexpr::stream_dev(zid, &request_id);
 
-    run_bridge(session, tcp, &ke_from_gw, &ke_to_gw).await
+    run_bridge(session, tcp, &ke_from_gw, &ke_to_gw).await.map(|_| ())
 }
 
 /// Gateway side: issue a connect query, wait for the ack, and run
@@ -83,7 +95,23 @@ pub async fn initiate_bridge(
     port: u16,
     tcp: TcpStream,
     peer_addr: Option<String>,
-) -> Result<(), BridgeError> {
+) -> Result<BridgeBytes, BridgeError> {
+    let (_request_id, bytes) =
+        initiate_bridge_with_id(session, zid, port, tcp, peer_addr).await?;
+    Ok(bytes)
+}
+
+/// Like `initiate_bridge` but also returns the `request_id` used on
+/// the connect query so callers (the gateway TCP listener and the
+/// HTTP host-router) can stamp it onto the `tunnel.session` audit
+/// row alongside the byte counters.
+pub async fn initiate_bridge_with_id(
+    session: &Session,
+    zid: &Zid,
+    port: u16,
+    tcp: TcpStream,
+    peer_addr: Option<String>,
+) -> Result<(Uuid, BridgeBytes), BridgeError> {
     let request_id = Uuid::new_v4();
     let req = ConnectRequest {
         request_id,
@@ -124,7 +152,8 @@ pub async fn initiate_bridge(
     let ke_to_agent = keyexpr::stream_gw(zid, &request_id);
     let ke_from_agent = keyexpr::stream_dev(zid, &request_id);
 
-    run_bridge(session, tcp, &ke_from_agent, &ke_to_agent).await
+    let bytes = run_bridge(session, tcp, &ke_from_agent, &ke_to_agent).await?;
+    Ok((request_id, bytes))
 }
 
 /// Pump bytes between a TCP socket and a Zenoh pub/sub pair until
@@ -134,8 +163,13 @@ async fn run_bridge(
     tcp: TcpStream,
     subscribe_ke: &str,
     publish_ke: &str,
-) -> Result<(), BridgeError> {
+) -> Result<BridgeBytes, BridgeError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
     let (mut tcp_read, mut tcp_write) = tcp.into_split();
+    let up = Arc::new(AtomicU64::new(0));
+    let down = Arc::new(AtomicU64::new(0));
 
     let publisher = session
         .declare_publisher(publish_ke.to_owned())
@@ -148,6 +182,7 @@ async fn run_bridge(
         .map_err(BridgeError::Zenoh)?;
 
     let pub_ke = publish_ke.to_owned();
+    let up_in = up.clone();
 
     // TCP → Zenoh
     let tcp_to_zenoh = tokio::spawn(async move {
@@ -160,6 +195,7 @@ async fn run_bridge(
                     break;
                 }
                 Ok(n) => {
+                    up_in.fetch_add(n as u64, Ordering::Relaxed);
                     if publisher.put(ZBytes::from(buf[..n].to_vec())).await.is_err() {
                         break;
                     }
@@ -174,6 +210,7 @@ async fn run_bridge(
     });
 
     let sub_ke = subscribe_ke.to_owned();
+    let down_in = down.clone();
 
     // Zenoh → TCP
     let zenoh_to_tcp = tokio::spawn(async move {
@@ -185,6 +222,7 @@ async fn run_bridge(
                         debug!(ke = %sub_ke, "received close sentinel");
                         break;
                     }
+                    down_in.fetch_add(bytes.len() as u64, Ordering::Relaxed);
                     if tcp_write.write_all(&bytes).await.is_err() {
                         break;
                     }
@@ -195,5 +233,8 @@ async fn run_bridge(
     });
 
     let _ = tokio::try_join!(tcp_to_zenoh, zenoh_to_tcp);
-    Ok(())
+    Ok(BridgeBytes {
+        up: up.load(Ordering::Relaxed),
+        down: down.load(Ordering::Relaxed),
+    })
 }
