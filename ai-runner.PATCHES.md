@@ -77,6 +77,28 @@ straightforward.
 
 **Marker:** `// codeless-patch-002`
 
+### PATCH-004 — built-in tool restriction (`CliCfg::tools` → `--tools`)
+
+**Files:** `src/types.rs` (new `tools: Option<String>` field on `CliCfg`),
+`src/runners/claude.rs` (forward to `cmd.tools()`).
+
+**Before:** Spec mode passed tool names through `CliCfg::allowed_tools`,
+which the claude runner forwards as `--allowed-tools`. That flag gates
+MCP server permissions, not the built-in tool set; Bash remained callable
+even when omitted from the list.
+
+**After:** `CliCfg` gains `tools: Option<String>`. When set, the claude
+runner calls `cmd.tools(tool_list)`, which generates `--tools` on the
+claude binary and actually restricts the available built-in tool set.
+The codeless spec-mode chat turn sets this to
+`"Read,Edit,Write,Glob,Grep,LS,TodoWrite"` to prevent the agent from
+calling Bash, NetFetch, or any other execution tool while authoring a
+job spec.
+
+**Upstream:** add the same `tools` field and forward it via `cmd.tools()`.
+
+**Marker:** `// codeless-patch-004`
+
 ### PATCH-003 — GitHub Copilot CLI runner
 
 **Files:** `src/types.rs` (new `Provider::Copilot` variant + Display

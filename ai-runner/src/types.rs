@@ -112,6 +112,12 @@ pub struct CliCfg {
     /// is provider-agnostic so future runners (codex, copilot) can
     /// adopt the same shape.
     pub permission_mode: Option<PermissionMode>,
+    /// codeless-patch-004: restrict which built-in tools the agent may
+    /// call. Comma-separated tool names forwarded to `--tools` on the
+    /// claude binary. Distinct from `allowed_tools` (which gates MCP
+    /// server permissions): this controls the built-in set (Bash, Read,
+    /// Edit, Write, Glob, …). `None` leaves the default set intact.
+    pub tools: Option<String>,
 }
 
 /// codeless-patch-002: pluggable headless-permission mode for CLI

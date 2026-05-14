@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
-use claude_wrapper::{streaming::stream_query, Claude, OutputFormat, QueryCommand};
+use claude_wrapper::{Claude, OutputFormat, QueryCommand, streaming::stream_query};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -168,6 +168,13 @@ impl Runner for ClaudeRunner {
             // allowed_tools takes an iterator; split a comma-separated string.
             let tool_list: Vec<&str> = tools.split(',').map(str::trim).collect();
             cmd = cmd.allowed_tools(tool_list);
+        }
+        // codeless-patch-004: restrict the set of available built-in tools
+        // (Bash, Read, Edit, …). `--tools` is distinct from `--allowed-tools`
+        // which gates MCP server permissions; this controls what is callable.
+        if let Some(tools) = &cfg.tools {
+            let tool_list: Vec<&str> = tools.split(',').map(str::trim).collect();
+            cmd = cmd.tools(tool_list);
         }
         if let Some(path) = &mcp_tmp_path {
             cmd = cmd.mcp_config(path.to_string_lossy().as_ref());
