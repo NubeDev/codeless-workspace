@@ -13,6 +13,12 @@ use crate::error::GatewayError;
 pub struct GatewayConfig {
     #[serde(default)]
     pub listen: Option<String>,
+    /// Optional public HTTP host-routing listener (SCOPE.md §13
+    /// Phase 2). When set, the gateway accepts HTTP requests on this
+    /// address and proxies them through the matching `http` tunnel
+    /// based on the `Host:` header.
+    #[serde(default)]
+    pub http_listen: Option<String>,
     #[serde(default)]
     pub database: Option<String>,
     pub zenoh: ZenohConfig,

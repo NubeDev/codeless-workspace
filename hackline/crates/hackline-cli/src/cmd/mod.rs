@@ -1,5 +1,6 @@
 //! Subcommand modules. One file per leaf command.
 
+pub mod cmd_outbox;
 pub mod device;
 pub mod events;
 pub mod login;

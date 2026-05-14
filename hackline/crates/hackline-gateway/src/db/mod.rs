@@ -5,6 +5,7 @@
 
 pub mod audit;
 pub mod claim;
+pub mod cmd_outbox;
 pub mod devices;
 pub mod events;
 pub mod logs;

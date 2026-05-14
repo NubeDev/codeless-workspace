@@ -108,10 +108,126 @@ impl MsgEnvelope {
     }
 }
 
+/// Durable command envelope flowing gateway→device on
+/// `hackline/<zid>/msg/cmd/<topic>`. `cmd_id` is the idempotency key
+/// on the device side (SCOPE.md §8.1); the device dedupes on it
+/// across redeliveries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CmdEnvelope {
+    pub cmd_id: Uuid,
+    pub topic: String,
+    pub enqueued_at: i64,
+    pub expires_at: i64,
+    pub envelope: MsgEnvelope,
+}
+
+/// Ack flowing device→gateway on
+/// `hackline/<zid>/msg/cmd-ack/<cmd_id>` after the device's handler
+/// finishes (or rejects) the command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CmdAck {
+    pub cmd_id: Uuid,
+    pub result: CmdResult,
+    #[serde(default)]
+    pub detail: Option<String>,
+}
+
+/// Outcome reported by the device-side cmd handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CmdResult {
+    Accepted,
+    Rejected,
+    Failed,
+    Done,
+}
+
+impl CmdResult {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Rejected => "rejected",
+            Self::Failed => "failed",
+            Self::Done => "done",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "accepted" => Some(Self::Accepted),
+            "rejected" => Some(Self::Rejected),
+            "failed" => Some(Self::Failed),
+            "done" => Some(Self::Done),
+            _ => None,
+        }
+    }
+}
+
+/// Request carried by a Zenoh `get` against
+/// `hackline/<zid>/msg/api/<topic>`. Synchronous round-trip — the
+/// gateway holds the HTTP connection open until the reply arrives
+/// or the timeout fires.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiRequest {
+    #[serde(default = "default_content_type")]
+    pub content_type: String,
+    pub payload: serde_json::Value,
+}
+
+/// Reply published by the device-side `serve_api` handler.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiReply {
+    #[serde(default = "default_content_type")]
+    pub content_type: String,
+    pub payload: serde_json::Value,
+}
+
+impl ApiReply {
+    pub fn json(payload: serde_json::Value) -> Self {
+        Self {
+            content_type: CONTENT_TYPE_JSON.into(),
+            payload,
+        }
+    }
+}
+
 fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmd_round_trip() {
+        let env = MsgEnvelope::new_event(serde_json::json!({"k": 1}));
+        let c = CmdEnvelope {
+            cmd_id: Uuid::nil(),
+            topic: "block.install".into(),
+            enqueued_at: 1,
+            expires_at: 2,
+            envelope: env,
+        };
+        let s = serde_json::to_string(&c).unwrap();
+        let back: CmdEnvelope = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.topic, "block.install");
+    }
+
+    #[test]
+    fn cmd_result_serde() {
+        let a = CmdAck {
+            cmd_id: Uuid::nil(),
+            result: CmdResult::Done,
+            detail: None,
+        };
+        let s = serde_json::to_string(&a).unwrap();
+        assert!(s.contains("\"done\""));
+        let back: CmdAck = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.result, CmdResult::Done);
+    }
 }

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
+use crate::cmd_delivery::CmdNotifier;
 use crate::db::pool::DbPool;
 use crate::events_bus::MsgBus;
 use crate::tunnel::manager::TunnelEvent;
@@ -17,4 +18,5 @@ pub struct AppState {
     pub zenoh: Arc<zenoh::Session>,
     pub tunnel_tx: mpsc::Sender<TunnelEvent>,
     pub msg_bus: MsgBus,
+    pub cmd_notifier: CmdNotifier,
 }

@@ -62,6 +62,63 @@ pub const MSG_EVENT_FANIN: &str = "hackline/*/msg/event/**";
 /// Gateway-side fan-in subscription for every device's logs.
 pub const MSG_LOG_FANIN: &str = "hackline/*/msg/log/**";
 
+/// Gateway-side fan-in subscription for every device's cmd acks.
+pub const MSG_CMD_ACK_FANIN: &str = "hackline/*/msg/cmd-ack/**";
+
+/// `hackline/<zid>/msg/cmd/<topic-as-keyexpr>` — gateway → device.
+pub fn msg_cmd(zid: &Zid, topic: &str) -> String {
+    format!(
+        "hackline/{}/msg/cmd/{}",
+        zid,
+        topic_to_keyexpr_suffix(topic)
+    )
+}
+
+/// `hackline/<zid>/msg/cmd-ack/<cmd_id>` — device → gateway.
+pub fn msg_cmd_ack(zid: &Zid, cmd_id: &uuid::Uuid) -> String {
+    format!("hackline/{}/msg/cmd-ack/{}", zid, cmd_id)
+}
+
+/// Wildcard subscriber used by `subscribe_cmd` on the device side.
+/// Matches every topic under `hackline/<own-zid>/msg/cmd/<topic>`
+/// for a given dotted topic prefix.
+pub fn msg_cmd_sub(zid: &Zid, topic: &str) -> String {
+    msg_cmd(zid, topic)
+}
+
+/// `hackline/<zid>/msg/api/<topic-as-keyexpr>` — queryable on device,
+/// `get` from gateway.
+pub fn msg_api(zid: &Zid, topic: &str) -> String {
+    format!(
+        "hackline/{}/msg/api/{}",
+        zid,
+        topic_to_keyexpr_suffix(topic)
+    )
+}
+
+/// Parse a cmd-ack keyexpr `hackline/<zid>/msg/cmd-ack/<cmd_id>`
+/// back into `(zid, cmd_id)`. Returns `None` on shape mismatch.
+pub fn parse_msg_cmd_ack_keyexpr(ke: &str) -> Option<(Zid, uuid::Uuid)> {
+    let mut parts = ke.split('/');
+    if parts.next()? != "hackline" {
+        return None;
+    }
+    let zid_raw = parts.next()?;
+    if parts.next()? != "msg" {
+        return None;
+    }
+    if parts.next()? != "cmd-ack" {
+        return None;
+    }
+    let cmd_id_raw = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let zid = Zid::new(zid_raw).ok()?;
+    let cmd_id = uuid::Uuid::parse_str(cmd_id_raw).ok()?;
+    Some((zid, cmd_id))
+}
+
 /// Inbound message-plane keyexpr kinds the gateway recognises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MsgKind {

@@ -10,8 +10,11 @@
 use std::sync::Arc;
 
 use hackline_proto::keyexpr;
-use hackline_proto::msg::{LogLevel, MsgEnvelope};
+use hackline_proto::msg::{
+    ApiReply, ApiRequest, CmdAck, CmdEnvelope, CmdResult, LogLevel, MsgEnvelope,
+};
 use hackline_proto::zid::Zid;
+use std::future::Future;
 use thiserror::Error;
 use zenoh::bytes::ZBytes;
 use zenoh::Session;
@@ -106,6 +109,205 @@ impl ClientSession {
             .map_err(ClientError::Zenoh)?;
         Ok(())
     }
+
+    /// Subscribe to durable commands on
+    /// `hackline/<own-zid>/msg/cmd/<topic>`. Topic may contain Zenoh
+    /// wildcards (`*` / `**`) on the subscribe side per SCOPE.md
+    /// §5.5; pass `**` to receive every cmd topic for this device.
+    ///
+    /// Returns a stream that yields `CmdHandle` items; each handle
+    /// owns the matching ack keyexpr so the caller cannot smuggle a
+    /// wrong `cmd_id` back. At-least-once delivery: the SDK does not
+    /// dedupe across redeliveries — the device app checks the
+    /// `cmd_id` against its own idempotency record before doing the
+    /// work (SCOPE.md §8.1).
+    pub async fn subscribe_cmd(&self, topic: &str) -> Result<CmdStream, ClientError> {
+        validate_topic_subscribe(topic)?;
+        let ke = keyexpr::msg_cmd(&self.zid, topic);
+        let sub = self
+            .inner
+            .declare_subscriber(ke)
+            .await
+            .map_err(ClientError::Zenoh)?;
+        Ok(CmdStream {
+            session: self.inner.clone(),
+            zid: self.zid.clone(),
+            sub,
+        })
+    }
+
+    /// Serve a synchronous typed RPC on
+    /// `hackline/<own-zid>/msg/api/<topic>`. The handler is invoked
+    /// for every incoming query; its returned `ApiReply` is JSON-
+    /// encoded and sent as the single query reply.
+    ///
+    /// Returns a `ServingApi` guard — drop it to undeclare the
+    /// queryable. Spawning the handler internally is the caller's
+    /// choice; this method awaits the next query in a loop on a
+    /// dedicated task it spawns itself.
+    pub async fn serve_api<F, Fut>(
+        &self,
+        topic: &str,
+        mut handler: F,
+    ) -> Result<ServingApi, ClientError>
+    where
+        F: FnMut(ApiRequest) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<ApiReply, ClientError>> + Send,
+    {
+        validate_topic(topic)?;
+        let ke = keyexpr::msg_api(&self.zid, topic);
+        let q = self
+            .inner
+            .declare_queryable(ke.clone())
+            .await
+            .map_err(ClientError::Zenoh)?;
+        let join = tokio::spawn(async move {
+            while let Ok(query) = q.recv_async().await {
+                let req_bytes = query
+                    .payload()
+                    .map(|p| p.to_bytes().to_vec())
+                    .unwrap_or_default();
+                let req: ApiRequest = match serde_json::from_slice(&req_bytes) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::warn!("api request decode failed: {e}");
+                        continue;
+                    }
+                };
+                let reply = match handler(req).await {
+                    Ok(r) => r,
+                    Err(e) => ApiReply::json(serde_json::json!({ "error": e.to_string() })),
+                };
+                let bytes = match serde_json::to_vec(&reply) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!("api reply encode failed: {e}");
+                        continue;
+                    }
+                };
+                let key = query.key_expr().clone();
+                if let Err(e) = query.reply(key, bytes).await {
+                    tracing::warn!("api reply send failed: {e}");
+                }
+            }
+        });
+        Ok(ServingApi {
+            _join: ServingApiHandle(Some(join)),
+        })
+    }
+}
+
+/// Stream of incoming commands. Yields `CmdHandle` values via
+/// `recv()`. Drop the stream to stop receiving new commands.
+pub struct CmdStream {
+    session: Arc<Session>,
+    zid: Zid,
+    sub: zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
+}
+
+impl CmdStream {
+    /// Await the next command. Returns `None` when the underlying
+    /// Zenoh subscriber closes (session dropped or undeclared).
+    pub async fn recv(&self) -> Option<CmdHandle> {
+        loop {
+            let sample = self.sub.recv_async().await.ok()?;
+            let bytes = sample.payload().to_bytes().to_vec();
+            let env: CmdEnvelope = match serde_json::from_slice(&bytes) {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::warn!("cmd envelope decode failed: {e}");
+                    continue;
+                }
+            };
+            return Some(CmdHandle {
+                session: self.session.clone(),
+                zid: self.zid.clone(),
+                cmd_id: env.cmd_id,
+                envelope: env,
+            });
+        }
+    }
+}
+
+/// One in-flight command. The handle owns the matching cmd-ack
+/// keyexpr so the call site cannot publish an ack with the wrong
+/// `cmd_id`.
+pub struct CmdHandle {
+    session: Arc<Session>,
+    zid: Zid,
+    pub cmd_id: uuid::Uuid,
+    pub envelope: CmdEnvelope,
+}
+
+impl CmdHandle {
+    pub fn payload(&self) -> &serde_json::Value {
+        &self.envelope.envelope.payload
+    }
+
+    pub fn topic(&self) -> &str {
+        &self.envelope.topic
+    }
+
+    /// Publish a `done`/`failed`/etc ack. Best-effort like every
+    /// other message-plane publish; the gateway sees redeliveries
+    /// until it observes the ack.
+    pub async fn ack(&self, result: CmdResult) -> Result<(), ClientError> {
+        self.ack_with(result, None).await
+    }
+
+    pub async fn ack_with(
+        &self,
+        result: CmdResult,
+        detail: Option<String>,
+    ) -> Result<(), ClientError> {
+        let ack = CmdAck {
+            cmd_id: self.cmd_id,
+            result,
+            detail,
+        };
+        let bytes = serde_json::to_vec(&ack)?;
+        let ke = keyexpr::msg_cmd_ack(&self.zid, &self.cmd_id);
+        self.session
+            .put(ke, ZBytes::from(bytes))
+            .await
+            .map_err(ClientError::Zenoh)?;
+        Ok(())
+    }
+}
+
+/// Guard returned by `serve_api`; drop to stop serving.
+pub struct ServingApi {
+    _join: ServingApiHandle,
+}
+
+struct ServingApiHandle(Option<tokio::task::JoinHandle<()>>);
+impl Drop for ServingApiHandle {
+    fn drop(&mut self) {
+        if let Some(h) = self.0.take() {
+            h.abort();
+        }
+    }
+}
+
+/// Permissive variant for subscribe paths: `*` and `**` segments
+/// are allowed (Zenoh wildcards), but `/` inside a segment isn't.
+fn validate_topic_subscribe(topic: &str) -> Result<(), ClientError> {
+    if topic.is_empty() {
+        return Err(ClientError::Topic("topic must not be empty".into()));
+    }
+    for seg in topic.split('.') {
+        if seg.is_empty() {
+            return Err(ClientError::Topic(format!(
+                "empty segment in topic `{topic}`"
+            )));
+        }
+        if seg.contains('/') {
+            return Err(ClientError::Topic(format!(
+                "segment `{seg}` contains reserved character"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Reject topics that would break the keyexpr conversion or smuggle

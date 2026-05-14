@@ -938,6 +938,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "uuid",
  "zenoh",
 ]
 
@@ -984,6 +985,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "zenoh",
 ]
 

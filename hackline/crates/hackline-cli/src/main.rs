@@ -58,6 +58,57 @@ enum Command {
     /// Message-plane logs (live tail + history)
     #[command(subcommand)]
     Log(LogCmd),
+    /// Durable command outbox
+    #[command(subcommand)]
+    Cmd(CmdCmd),
+    /// Synchronous device-side RPC
+    #[command(subcommand)]
+    Api(ApiCmd),
+}
+
+#[derive(Subcommand)]
+enum CmdCmd {
+    /// Enqueue a command for a device
+    Send {
+        #[arg(long)]
+        device: i64,
+        #[arg(long)]
+        topic: String,
+        /// JSON-encoded payload string
+        #[arg(long, default_value = "{}")]
+        payload: String,
+        /// TTL in milliseconds (default 7 days server-side)
+        #[arg(long)]
+        expires_in_ms: Option<i64>,
+    },
+    /// List outbox entries for a device
+    List {
+        #[arg(long)]
+        device: i64,
+        /// `pending` | `delivered` | `acked`
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Cancel a queued command
+    Cancel {
+        #[arg(long)]
+        cmd_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApiCmd {
+    /// Synchronous RPC against a device's `serve_api` handler
+    Call {
+        #[arg(long)]
+        device: i64,
+        #[arg(long)]
+        topic: String,
+        #[arg(long, default_value = "{}")]
+        payload: String,
+        #[arg(long, default_value_t = 5000)]
+        timeout_ms: u64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -223,6 +274,30 @@ async fn main() -> anyhow::Result<()> {
                 }
                 LogCmd::History { device, topic, limit } => {
                     cmd::events::history(&c, device, topic.as_deref(), limit, json, cmd::events::StreamKind::Logs).await?
+                }
+            }
+        }
+        Command::Cmd(sub) => {
+            let c = client::Client::from_args_or_cache(cli.server, cli.token)?;
+            match sub {
+                CmdCmd::Send { device, topic, payload, expires_in_ms } => {
+                    let p: serde_json::Value = serde_json::from_str(&payload)
+                        .map_err(|e| anyhow::anyhow!("invalid --payload JSON: {e}"))?;
+                    cmd::cmd_outbox::send(&c, device, &topic, p, expires_in_ms, json).await?
+                }
+                CmdCmd::List { device, status } => {
+                    cmd::cmd_outbox::list(&c, device, status.as_deref(), json).await?
+                }
+                CmdCmd::Cancel { cmd_id } => cmd::cmd_outbox::cancel(&c, &cmd_id).await?,
+            }
+        }
+        Command::Api(sub) => {
+            let c = client::Client::from_args_or_cache(cli.server, cli.token)?;
+            match sub {
+                ApiCmd::Call { device, topic, payload, timeout_ms } => {
+                    let p: serde_json::Value = serde_json::from_str(&payload)
+                        .map_err(|e| anyhow::anyhow!("invalid --payload JSON: {e}"))?;
+                    cmd::cmd_outbox::api_call(&c, device, &topic, p, timeout_ms, json).await?
                 }
             }
         }

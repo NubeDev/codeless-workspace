@@ -30,5 +30,14 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/events/stream", get(super::events::stream::handler))
         .route("/v1/log", get(super::logs::list::handler))
         .route("/v1/log/stream", get(super::logs::stream::handler))
+        // Cmd outbox
+        .route("/v1/devices/{id}/cmd/{topic}", post(super::cmd::send::handler))
+        .route("/v1/devices/{id}/cmd", get(super::cmd::list::handler))
+        .route("/v1/cmd/{cmd_id}", delete(super::cmd::cancel::handler))
+        // Synchronous RPC
+        .route(
+            "/v1/devices/{id}/api/{topic}",
+            post(super::api_call::call::handler),
+        )
         .with_state(state)
 }

@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod cmd_delivery;
 pub mod config;
 pub mod db;
 pub mod error;

@@ -10,5 +10,5 @@ pub mod msg;
 pub mod zid;
 
 pub use connect::{ConnectAck, ConnectRequest};
-pub use msg::{LogLevel, MsgEnvelope};
+pub use msg::{ApiReply, ApiRequest, CmdAck, CmdEnvelope, CmdResult, LogLevel, MsgEnvelope};
 pub use zid::Zid;
