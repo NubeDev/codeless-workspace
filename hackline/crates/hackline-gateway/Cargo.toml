@@ -1,0 +1,20 @@
+[package]
+name = "hackline-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Cloud-side hackline gateway: REST + SSE + TCP listeners + SQLite"
+
+[lints]
+workspace = true
+
+# Multiple binaries auto-discovered from src/bin/*.
+# - serve         : run the gateway
+# - reset-claim   : wipe users + reissue claim
+# - print-claim   : print the pending claim token (only while pending)
+
+[dependencies]
+hackline-proto = { path = "../hackline-proto" }
+hackline-core  = { path = "../hackline-core" }

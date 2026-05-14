@@ -1,0 +1,1 @@
+//! `hackline user remove ID`.

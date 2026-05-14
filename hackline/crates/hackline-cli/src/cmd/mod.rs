@@ -1,0 +1,9 @@
+//! Subcommand modules. One file per leaf command.
+
+pub mod device;
+pub mod events;
+pub mod login;
+pub mod token;
+pub mod tunnel;
+pub mod user;
+pub mod whoami;

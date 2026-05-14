@@ -1,0 +1,21 @@
+[package]
+name = "hackline-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "hackline CLI: thin REST/SSE client over the gateway"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "hackline"
+path = "src/main.rs"
+
+[dependencies]
+hackline-proto = { path = "../hackline-proto" }
+# Note: does NOT depend on hackline-core or hackline-gateway. The CLI
+# is a pure HTTP/SSE client; reqwest is added when the first command
+# lands.
