@@ -16,6 +16,10 @@ path = "src/main.rs"
 
 [dependencies]
 hackline-proto = { path = "../hackline-proto" }
-# Note: does NOT depend on hackline-core or hackline-gateway. The CLI
-# is a pure HTTP/SSE client; reqwest is added when the first command
-# lands.
+clap = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+dirs = { workspace = true }
+anyhow = { workspace = true }

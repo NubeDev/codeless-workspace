@@ -2,3 +2,6 @@
 //! `users` is empty; `POST /v1/claim` consumes it atomically (delete
 //! + insert in one transaction so two simultaneous claimants cannot
 //! both win).
+//!
+//! Business logic lives in `db::claim`; this module re-exports what
+//! the API handlers need.

@@ -32,6 +32,14 @@ r2d2 = "0.8"
 r2d2_sqlite = "0.25"
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
+sha2 = "0.10"
+subtle = "2"
+rand = "0.9"
+hex = "0.4"
+base64 = "0.22"
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { version = "0.12", features = ["json"] }
+dirs = "6"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use hackline_gateway::api;
 use hackline_gateway::config::GatewayConfig;
-use hackline_gateway::db::{migrations, pool};
+use hackline_gateway::db::{claim, migrations, pool};
 use hackline_gateway::state::AppState;
 use hackline_gateway::tunnel::manager;
 use tracing::info;
@@ -32,13 +32,31 @@ async fn main() -> anyhow::Result<()> {
     }
     info!(db = db_path, "database ready");
 
+    {
+        let conn = db.get()?;
+        match claim::ensure_pending(&conn)? {
+            Some(token) => {
+                info!("gateway unclaimed — claim token printed below");
+                println!("\n  CLAIM TOKEN: {token}\n");
+                println!("  Use: hackline login --server http://{listen_addr} --token {token}\n",
+                    listen_addr = cfg.listen.as_deref().unwrap_or("127.0.0.1:8080"));
+            }
+            None => {
+                info!("gateway already claimed (or claim pending from previous boot)");
+            }
+        }
+    }
+
     let zenoh_cfg = cfg.to_zenoh_config()?;
     let session = Arc::new(hackline_core::session::open(zenoh_cfg).await?);
     info!(zid = %session.zid(), "zenoh session open");
 
+    let (tunnel_tx, tunnel_rx) = tokio::sync::mpsc::channel(64);
+
     let state = AppState {
         db: db.clone(),
         zenoh: session.clone(),
+        tunnel_tx,
     };
 
     let listen_addr = cfg.listen.as_deref().unwrap_or("127.0.0.1:8080");
@@ -51,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
         result = axum::serve(listener, app) => {
             result?;
         }
-        result = manager::run(db, session) => {
+        result = manager::run(db, session, tunnel_rx) => {
             result?;
         }
     }

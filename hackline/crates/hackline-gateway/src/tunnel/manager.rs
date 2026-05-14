@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use hackline_proto::Zid;
+use tokio::sync::mpsc;
 use tracing::{error, info};
 use zenoh::Session;
 
@@ -11,40 +12,60 @@ use crate::db::pool::DbPool;
 use crate::db::tunnels;
 use crate::tunnel::tcp_listener;
 
-/// Load active TCP tunnels from the DB and spawn a listener task for
-/// each. Blocks until all listeners exit (i.e. forever, under normal
-/// operation).
-pub async fn run(db: DbPool, session: Arc<Session>) -> Result<(), crate::error::GatewayError> {
+/// Sent by API handlers when a tunnel is created or deleted.
+#[derive(Debug)]
+pub enum TunnelEvent {
+    Added(tunnels::TunnelWithZid),
+    Removed(i64),
+}
+
+/// Load active TCP tunnels from the DB, spawn listeners, then watch
+/// for hot-reload events on `rx`.
+pub async fn run(
+    db: DbPool,
+    session: Arc<Session>,
+    mut rx: mpsc::Receiver<TunnelEvent>,
+) -> Result<(), crate::error::GatewayError> {
     let conn = db.get()?;
     let active = tunnels::list_active_tcp(&conn)?;
     drop(conn);
 
     if active.is_empty() {
         info!("no active TCP tunnels in DB");
-        std::future::pending::<()>().await;
-        return Ok(());
+    } else {
+        info!(count = active.len(), "starting tunnel listeners from DB");
     }
 
-    info!(count = active.len(), "starting tunnel listeners from DB");
-
-    let mut handles = Vec::with_capacity(active.len());
     for t in active {
-        let Ok(zid) = Zid::new(&t.zid) else {
-            error!(zid = %t.zid, "invalid ZID in tunnels table, skipping");
-            continue;
-        };
-        let s = session.clone();
-        handles.push(tokio::spawn(async move {
-            if let Err(e) =
-                tcp_listener::run_tcp_listener(s, zid, t.local_port, t.public_port).await
-            {
-                error!(listen_port = t.public_port, "tunnel listener failed: {e}");
-            }
-        }));
+        spawn_listener(&session, &t);
     }
 
-    for h in handles {
-        let _ = h.await;
+    while let Some(event) = rx.recv().await {
+        match event {
+            TunnelEvent::Added(t) => {
+                info!(id = t.id, port = t.public_port, "hot-starting tunnel listener");
+                spawn_listener(&session, &t);
+            }
+            TunnelEvent::Removed(id) => {
+                info!(id, "tunnel removed (listener will close on next connection attempt)");
+            }
+        }
     }
+
     Ok(())
+}
+
+fn spawn_listener(session: &Arc<Session>, t: &tunnels::TunnelWithZid) {
+    let Ok(zid) = Zid::new(&t.zid) else {
+        error!(zid = %t.zid, "invalid ZID in tunnels table, skipping");
+        return;
+    };
+    let s = session.clone();
+    let local_port = t.local_port;
+    let public_port = t.public_port;
+    tokio::spawn(async move {
+        if let Err(e) = tcp_listener::run_tcp_listener(s, zid, local_port, public_port).await {
+            error!(listen_port = public_port, "tunnel listener failed: {e}");
+        }
+    });
 }

@@ -3,12 +3,14 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 
+use crate::auth::middleware::AuthedUser;
 use crate::db::tunnels;
 use crate::error::GatewayError;
 use crate::state::AppState;
 
 pub async fn handler(
     State(state): State<AppState>,
+    AuthedUser(_caller): AuthedUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, GatewayError> {
     let conn = state.db.get()?;

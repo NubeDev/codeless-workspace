@@ -5,9 +5,11 @@ use axum::extract::State;
 use axum::Json;
 use serde::Deserialize;
 
-use crate::db::tunnels;
+use crate::auth::middleware::AuthedUser;
+use crate::db::{devices, tunnels};
 use crate::error::GatewayError;
 use crate::state::AppState;
+use crate::tunnel::manager::TunnelEvent;
 
 #[derive(Deserialize)]
 pub struct CreateTunnel {
@@ -20,9 +22,11 @@ pub struct CreateTunnel {
 
 pub async fn handler(
     State(state): State<AppState>,
+    AuthedUser(_caller): AuthedUser,
     Json(body): Json<CreateTunnel>,
 ) -> Result<(axum::http::StatusCode, Json<tunnels::Tunnel>), GatewayError> {
-    let conn = state.db.get()?;
+    let db = state.db.clone();
+    let conn = db.get()?;
     let tunnel = tokio::task::spawn_blocking(move || {
         tunnels::insert(
             &conn,
@@ -35,5 +39,27 @@ pub async fn handler(
     })
     .await
     .unwrap()?;
+
+    // Hot-start the TCP listener if applicable.
+    if tunnel.kind == "tcp" {
+        if let Some(public_port) = tunnel.public_port {
+            let conn = db.get()?;
+            let tid = tunnel.id;
+            let did = tunnel.device_id;
+            let lp = tunnel.local_port;
+            if let Ok(device) = tokio::task::spawn_blocking(move || devices::get(&conn, did)).await.unwrap() {
+                let twz = tunnels::TunnelWithZid {
+                    id: tid,
+                    zid: device.zid,
+                    kind: "tcp".into(),
+                    local_port: lp as u16,
+                    public_port: public_port as u16,
+                    enabled: true,
+                };
+                let _ = state.tunnel_tx.send(TunnelEvent::Added(twz)).await;
+            }
+        }
+    }
+
     Ok((axum::http::StatusCode::CREATED, Json(tunnel)))
 }

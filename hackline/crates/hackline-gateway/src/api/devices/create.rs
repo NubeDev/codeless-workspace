@@ -4,6 +4,7 @@ use axum::extract::State;
 use axum::Json;
 use serde::Deserialize;
 
+use crate::auth::middleware::AuthedUser;
 use crate::db::devices;
 use crate::error::GatewayError;
 use crate::state::AppState;
@@ -16,6 +17,7 @@ pub struct CreateDevice {
 
 pub async fn handler(
     State(state): State<AppState>,
+    AuthedUser(_caller): AuthedUser,
     Json(body): Json<CreateDevice>,
 ) -> Result<(axum::http::StatusCode, Json<devices::Device>), GatewayError> {
     let conn = state.db.get()?;
