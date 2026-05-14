@@ -37,3 +37,38 @@ Three things to call out for your review before you flip back to work mode:
 3. **Cross-org error code.** SCOPE.md doesn't say whether cross-org reads return `404` or `403`. I left it as a decision the implementing agent records in Design; if you have a preference, drop it in here and I'll pin it in WORKFLOW.md.
 
 Files written: `template.yaml`, `SCOPE.md`, `WORKFLOW.md` under `.codeless/jobs/stage-6-7/`.
+
+## user @ 2026-05-14T11:13:36Z
+
+give me an overview of what you will do and over how many stages for 6 and 7
+
+## assistant @ 2026-05-14T11:13:49Z
+
+## Overview — 2 stages
+
+### Stage 1 — Goal 6: audit completeness + admin UI (SCOPE.md §13 Phase 3)
+
+Five steps inside one stage, one session note (`DOCS/sessions/2026-05-14-goal6-audit-admin-ui.md`):
+
+1. **`tunnel.session` audit rows.** Open row when `bridge::initiate_bridge` accepts a TCP connection; finalize on close with `bytes_up`, `bytes_down`, `duration_ms`. Integration test bridges a TCP echo and reads the row back.
+2. **`cmd.send` / `cmd.cancel` / `api.call` audit emit.** Wired into the existing REST handlers from Goal 5, with the exact `detail` keys from SCOPE.md §7.2.
+3. **`GET /metrics`.** Prometheus text endpoint, admin-token gated, covering every counter/gauge in SCOPE.md §10.2.
+4. **Static React admin bundle.** Served from gateway under `/admin`, hashed asset paths with long-cache headers. Views: device list, live tunnels, cmd outbox, live events stream. Uses the existing `/v1/*` REST + `/v1/*/stream` SSE — no new wire surface.
+5. **Session-note Outcome + Design.**
+
+Stage 1 must merge before Stage 2 starts (overlapping tables).
+
+### Stage 2 — Goal 7: multi-tenant orgs (SCOPE.md §13 Phase 4)
+
+Six steps, one session note (`DOCS/sessions/2026-05-14-goal7-multi-tenant-orgs.md`):
+
+1. **Migration.** New `orgs` table; non-null `org_id` FK on `users` and `devices`; backfill existing rows into a default org.
+2. **Auth.** `AuthedUser` carries `org_id`; every REST handler scoped by it; org check runs before the per-device customer check from Goal 5.
+3. **Zenoh keyexpr prefix per org.** Move from `hackline/<zid>/...` to `hackline/<org_slug>/<zid>/...`; per-org ACL grant template.
+4. **Claim flow + CLI.** First-boot claim creates first org; `hackline org create/list/inspect`; `hackline login` carries org context.
+5. **Cross-org isolation integration test.** Two orgs, one device each, cross-org REST returns `404` (vs `403` — decision recorded in Design).
+6. **Session-note Outcome + Design**, including the SCOPE.md §5/§6/§7 updates the stage writes inline.
+
+### Total
+
+2 stages, ~11 steps, 2 new session notes, 1 new migration, 1 new REST endpoint (`/metrics`), 1 new static bundle path (`/admin`), and inline SCOPE.md updates during Stage 2.
