@@ -49,11 +49,10 @@ Per `SCOPE.md` §13:
 - Phase 2 — Commands + api + HTTP host-routing — **done** (`goal5-cmd-api-host-routing`)
 - Phase 3 — Audit completeness + admin UI — **done** (`goal6-audit-admin-ui`)
 - Phase 4 — Multi-tenant orgs — **done** (`goal7-multi-tenant-orgs`)
-- Phase 5 — Deployment polish (ACME/TLS) — **done** (`goal8-acme-tls`); Postgres + TS codegen remaining
+- Phase 5 — Deployment polish (ACME/TLS) — **done** (`goal8-acme-tls`, `goal9-tunnel-tls`); ACME renewal + Postgres + TS codegen remaining
 
-All session docs in `DOCS/sessions/`. Next work: tunnel TCP TLS
-wrapping, ACME cert renewal, Postgres backend, or Zenoh-WS browser
-client.
+All session docs in `DOCS/sessions/`. Next work: ACME cert renewal,
+Postgres backend, or Zenoh-WS browser client.
 
 ## Hard rules
 

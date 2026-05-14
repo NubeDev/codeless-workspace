@@ -17,6 +17,17 @@ use crate::db::pool::DbPool;
 use crate::error::GatewayError;
 use crate::metrics::{Metrics, Outcome};
 
+/// Optional TLS acceptor for tunnel TCP sockets. `None` (or any build
+/// without the `tls` feature) means the listener bridges raw TCP, the
+/// way it always has. With `Some(_)`, every accepted socket is
+/// `accept`-handshaked through rustls before bytes are pumped — same
+/// cert chain as the REST API, since `tls::TlsState` builds both from
+/// the same PEM material.
+#[cfg(feature = "tls")]
+pub type TunnelTls = Option<tokio_rustls::TlsAcceptor>;
+#[cfg(not(feature = "tls"))]
+pub type TunnelTls = Option<std::convert::Infallible>;
+
 /// Listen on `listen_port` and bridge every accepted connection to
 /// `device_port` on the device identified by `zid`. `tunnel_id` and
 /// `device_id` are stamped onto the `tunnel.session` audit row so the
@@ -32,9 +43,17 @@ pub async fn run_tcp_listener(
     zid: Zid,
     device_port: u16,
     listen_port: u16,
+    tls: TunnelTls,
 ) -> Result<(), GatewayError> {
     let listener = TcpListener::bind(format!("0.0.0.0:{listen_port}")).await?;
-    info!(listen_port, %zid, org = %org_slug, device_port, "tcp tunnel listener ready");
+    info!(
+        listen_port,
+        %zid,
+        org = %org_slug,
+        device_port,
+        tls = tls.is_some(),
+        "tcp tunnel listener ready",
+    );
 
     loop {
         let (tcp, addr) = listener.accept().await?;
@@ -43,6 +62,7 @@ pub async fn run_tcp_listener(
         let db = db.clone();
         let metrics = metrics.clone();
         let org = org_slug.clone();
+        let tls = tls.clone();
         tokio::spawn(async move {
             let peer = addr.to_string();
             run_bridged_connection(
@@ -57,6 +77,7 @@ pub async fn run_tcp_listener(
                 device_port,
                 tcp,
                 Some(peer),
+                tls,
             )
             .await;
         });
@@ -78,6 +99,7 @@ pub async fn run_bridged_connection(
     device_port: u16,
     tcp: tokio::net::TcpStream,
     peer: Option<String>,
+    tls: TunnelTls,
 ) {
     metrics.inc_tunnel_active(kind);
     let now_ms_open = now_ms();
@@ -103,15 +125,7 @@ pub async fn run_bridged_connection(
         .and_then(|r| r.ok())
     };
 
-    let result = hackline_core::bridge::initiate_bridge(
-        &session,
-        &org_slug,
-        &zid,
-        device_port,
-        tcp,
-        peer.clone(),
-    )
-    .await;
+    let result = bridge_socket(&session, &org_slug, &zid, device_port, tcp, peer.clone(), tls).await;
 
     metrics.dec_tunnel_active(kind);
 
@@ -137,6 +151,50 @@ pub async fn run_bridged_connection(
     }
 
     info!(?peer, bytes_up, bytes_down, "connection closed");
+}
+
+/// Wrap the accepted TCP socket in TLS (if configured) and call into
+/// the appropriate bridge entry point. Split out so the audit
+/// book-ending stays one cohesive function regardless of TLS mode,
+/// and so the `#[cfg]` is contained to the one branch that actually
+/// touches `tokio_rustls`.
+#[cfg(feature = "tls")]
+async fn bridge_socket(
+    session: &Session,
+    org_slug: &str,
+    zid: &Zid,
+    device_port: u16,
+    tcp: tokio::net::TcpStream,
+    peer: Option<String>,
+    tls: TunnelTls,
+) -> Result<hackline_core::bridge::BridgeBytes, hackline_core::error::BridgeError> {
+    match tls {
+        Some(acceptor) => {
+            let tls_stream = acceptor.accept(tcp).await.map_err(hackline_core::error::BridgeError::Io)?;
+            hackline_core::bridge::initiate_bridge_io_with_id(
+                session, org_slug, zid, device_port, tls_stream, peer,
+            )
+            .await
+            .map(|(_id, b)| b)
+        }
+        None => hackline_core::bridge::initiate_bridge(
+            session, org_slug, zid, device_port, tcp, peer,
+        )
+        .await,
+    }
+}
+
+#[cfg(not(feature = "tls"))]
+async fn bridge_socket(
+    session: &Session,
+    org_slug: &str,
+    zid: &Zid,
+    device_port: u16,
+    tcp: tokio::net::TcpStream,
+    peer: Option<String>,
+    _tls: TunnelTls,
+) -> Result<hackline_core::bridge::BridgeBytes, hackline_core::error::BridgeError> {
+    hackline_core::bridge::initiate_bridge(session, org_slug, zid, device_port, tcp, peer).await
 }
 
 fn now_ms() -> i64 {

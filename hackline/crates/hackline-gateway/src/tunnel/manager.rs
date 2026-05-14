@@ -11,7 +11,7 @@ use zenoh::Session;
 use crate::db::pool::DbPool;
 use crate::db::tunnels;
 use crate::metrics::Metrics;
-use crate::tunnel::tcp_listener;
+use crate::tunnel::tcp_listener::{self, TunnelTls};
 
 /// Sent by API handlers when a tunnel is created or deleted.
 #[derive(Debug)]
@@ -27,6 +27,7 @@ pub async fn run(
     session: Arc<Session>,
     metrics: Metrics,
     mut rx: mpsc::Receiver<TunnelEvent>,
+    tls: TunnelTls,
 ) -> Result<(), crate::error::GatewayError> {
     let conn = db.get()?;
     let active = tunnels::list_active_tcp(&conn)?;
@@ -39,14 +40,14 @@ pub async fn run(
     }
 
     for t in active {
-        spawn_listener(&session, &db, &metrics, &t);
+        spawn_listener(&session, &db, &metrics, &t, &tls);
     }
 
     while let Some(event) = rx.recv().await {
         match event {
             TunnelEvent::Added(t) => {
                 info!(id = t.id, port = t.public_port, "hot-starting tunnel listener");
-                spawn_listener(&session, &db, &metrics, &t);
+                spawn_listener(&session, &db, &metrics, &t, &tls);
             }
             TunnelEvent::Removed(id) => {
                 info!(id, "tunnel removed (listener will close on next connection attempt)");
@@ -62,6 +63,7 @@ fn spawn_listener(
     db: &DbPool,
     metrics: &Metrics,
     t: &tunnels::TunnelWithZid,
+    tls: &TunnelTls,
 ) {
     let Ok(zid) = Zid::new(&t.zid) else {
         error!(zid = %t.zid, "invalid ZID in tunnels table, skipping");
@@ -75,6 +77,7 @@ fn spawn_listener(
     let org_slug = t.org_slug.clone();
     let local_port = t.local_port;
     let public_port = t.public_port;
+    let tls = tls.clone();
     tokio::spawn(async move {
         if let Err(e) = tcp_listener::run_tcp_listener(
             s,
@@ -86,6 +89,7 @@ fn spawn_listener(
             zid,
             local_port,
             public_port,
+            tls,
         )
         .await
         {

@@ -105,6 +105,16 @@ async fn main() -> anyhow::Result<()> {
 
     info!(addr = listen_addr, tls = tls_state.is_some(), "REST API listening");
 
+    // The same TLS material that terminates the REST listener also
+    // wraps tunnel TCP sockets. Cloning out the acceptor here keeps
+    // the `tls_state` value available for `serve_rest` below while the
+    // tunnel manager owns its own clone.
+    #[cfg(feature = "tls")]
+    let tunnel_tls: hackline_gateway::tunnel::tcp_listener::TunnelTls =
+        tls_state.as_ref().map(|s| s.acceptor.clone());
+    #[cfg(not(feature = "tls"))]
+    let tunnel_tls: hackline_gateway::tunnel::tcp_listener::TunnelTls = None;
+
     // Run axum and tunnel manager concurrently. The fan-in subscriber
     // tasks own their own loops and don't need to be in the select —
     // dropping their handles when the process exits is enough.
@@ -128,7 +138,7 @@ async fn main() -> anyhow::Result<()> {
         result = serve_rest(listen_addr, app, &tls_state) => {
             result?;
         }
-        result = manager::run(db, session, metrics, tunnel_rx) => {
+        result = manager::run(db, session, metrics, tunnel_rx, tunnel_tls) => {
             result?;
         }
         result = http_router_fut => {
