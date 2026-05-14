@@ -24,15 +24,19 @@ pub struct StreamQuery {
 
 pub async fn handler(
     State(state): State<AppState>,
-    AuthedUser(_caller): AuthedUser,
+    AuthedUser(caller): AuthedUser,
     Query(q): Query<StreamQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.msg_bus.subscribe();
+    let caller_org = caller.org_id;
     let stream = BroadcastStream::new(rx).filter_map(move |item| {
-        let row = match item {
-            Ok(MsgEvent::Log(r)) => r,
+        let (org_id, row) = match item {
+            Ok(MsgEvent::Log { org_id, row }) => (org_id, row),
             _ => return None,
         };
+        if org_id != caller_org {
+            return None;
+        }
         if let Some(d) = q.device {
             if row.device_id != d {
                 return None;

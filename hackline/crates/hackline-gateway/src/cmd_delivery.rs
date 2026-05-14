@@ -114,7 +114,7 @@ async fn handle_ack(
     ke: &str,
     payload: &[u8],
 ) -> Result<(), GatewayError> {
-    let (_zid, cmd_id) = keyexpr::parse_msg_cmd_ack_keyexpr(ke)
+    let (_org, _zid, cmd_id) = keyexpr::parse_msg_cmd_ack_keyexpr(ke)
         .ok_or_else(|| GatewayError::BadRequest(format!("unparsable cmd-ack keyexpr: {ke}")))?;
     let ack: CmdAck = serde_json::from_slice(payload)
         .map_err(|e| GatewayError::BadRequest(format!("cmd-ack envelope: {e}")))?;
@@ -161,14 +161,14 @@ async fn drain_pending(
     for row in rows {
         let db3 = db.clone();
         let device_id = row.device_id;
-        let device = tokio::task::spawn_blocking(move || {
+        let lookup = tokio::task::spawn_blocking(move || {
             let conn = db3.get()?;
-            devices::get(&conn, device_id)
+            devices::get_with_org_slug(&conn, device_id)
         })
         .await
         .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))?;
-        let device = match device {
-            Ok(d) => d,
+        let (device, org_slug) = match lookup {
+            Ok(pair) => pair,
             Err(e) => {
                 warn!(device_id, "cmd pusher: device lookup failed: {e}");
                 continue;
@@ -211,7 +211,7 @@ async fn drain_pending(
                 continue;
             }
         };
-        let ke = keyexpr::msg_cmd(&zid, &row.topic);
+        let ke = keyexpr::msg_cmd(&org_slug, &zid, &row.topic);
         match session.put(ke.clone(), ZBytes::from(bytes)).await {
             Ok(()) => {
                 debug!(cmd_id = %row.cmd_id, ke = %ke, "cmd published");

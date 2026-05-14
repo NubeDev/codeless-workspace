@@ -9,6 +9,7 @@ use crate::error::GatewayError;
 #[derive(Debug, Clone, Serialize)]
 pub struct User {
     pub id: i64,
+    pub org_id: i64,
     pub name: String,
     pub role: String,
     pub device_scope: String,
@@ -22,7 +23,7 @@ pub struct User {
 /// authenticated request.
 pub fn get_by_token_hash(conn: &Connection, token_hash: &str) -> Result<Option<User>, GatewayError> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, role, device_scope, tunnel_scope, expires_at, created_at, last_used_at
+        "SELECT id, org_id, name, role, device_scope, tunnel_scope, expires_at, created_at, last_used_at
          FROM users WHERE token_hash = ?1",
     )?;
     let mut rows = stmt.query_map(params![token_hash], row_to_user)?;
@@ -34,13 +35,15 @@ pub fn get_by_token_hash(conn: &Connection, token_hash: &str) -> Result<Option<U
 
 pub fn insert(
     conn: &Connection,
+    org_id: i64,
     name: &str,
     role: &str,
     token_hash: &str,
 ) -> Result<User, GatewayError> {
     conn.execute(
-        "INSERT INTO users (name, role, token_hash, created_at) VALUES (?1, ?2, ?3, unixepoch())",
-        params![name, role, token_hash],
+        "INSERT INTO users (org_id, name, role, token_hash, created_at)
+         VALUES (?1, ?2, ?3, ?4, unixepoch())",
+        params![org_id, name, role, token_hash],
     )?;
     let id = conn.last_insert_rowid();
     get(conn, id)
@@ -48,16 +51,25 @@ pub fn insert(
 
 pub fn list(conn: &Connection) -> Result<Vec<User>, GatewayError> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, role, device_scope, tunnel_scope, expires_at, created_at, last_used_at
+        "SELECT id, org_id, name, role, device_scope, tunnel_scope, expires_at, created_at, last_used_at
          FROM users ORDER BY id",
     )?;
     let rows = stmt.query_map([], row_to_user)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
+pub fn list_in_org(conn: &Connection, org_id: i64) -> Result<Vec<User>, GatewayError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, org_id, name, role, device_scope, tunnel_scope, expires_at, created_at, last_used_at
+         FROM users WHERE org_id = ?1 ORDER BY id",
+    )?;
+    let rows = stmt.query_map(params![org_id], row_to_user)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 pub fn get(conn: &Connection, id: i64) -> Result<User, GatewayError> {
     conn.query_row(
-        "SELECT id, name, role, device_scope, tunnel_scope, expires_at, created_at, last_used_at
+        "SELECT id, org_id, name, role, device_scope, tunnel_scope, expires_at, created_at, last_used_at
          FROM users WHERE id = ?1",
         params![id],
         row_to_user,
@@ -70,6 +82,14 @@ pub fn get(conn: &Connection, id: i64) -> Result<User, GatewayError> {
 
 pub fn delete(conn: &Connection, id: i64) -> Result<bool, GatewayError> {
     let n = conn.execute("DELETE FROM users WHERE id = ?1", params![id])?;
+    Ok(n > 0)
+}
+
+pub fn delete_in_org(conn: &Connection, org_id: i64, id: i64) -> Result<bool, GatewayError> {
+    let n = conn.execute(
+        "DELETE FROM users WHERE id = ?1 AND org_id = ?2",
+        params![id, org_id],
+    )?;
     Ok(n > 0)
 }
 
@@ -98,12 +118,13 @@ pub fn update_token_hash(conn: &Connection, id: i64, token_hash: &str) -> Result
 fn row_to_user(row: &rusqlite::Row) -> rusqlite::Result<User> {
     Ok(User {
         id: row.get(0)?,
-        name: row.get(1)?,
-        role: row.get(2)?,
-        device_scope: row.get(3)?,
-        tunnel_scope: row.get(4)?,
-        expires_at: row.get(5)?,
-        created_at: row.get(6)?,
-        last_used_at: row.get(7)?,
+        org_id: row.get(1)?,
+        name: row.get(2)?,
+        role: row.get(3)?,
+        device_scope: row.get(4)?,
+        tunnel_scope: row.get(5)?,
+        expires_at: row.get(6)?,
+        created_at: row.get(7)?,
+        last_used_at: row.get(8)?,
     })
 }

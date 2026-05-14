@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
-use claude_wrapper::{Claude, OutputFormat, QueryCommand, streaming::stream_query};
+use claude_wrapper::{streaming::stream_query, Claude, OutputFormat, QueryCommand};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 

@@ -15,10 +15,13 @@ use crate::db::logs::LogRow;
 /// message for that subscriber.
 const CHANNEL_CAPACITY: usize = 1024;
 
+/// Bus envelope. `org_id` is captured at publish time so SSE
+/// subscribers can filter cross-org rows without a per-frame DB
+/// lookup (SCOPE.md §13 Phase 4).
 #[derive(Debug, Clone)]
 pub enum MsgEvent {
-    Event(EventRow),
-    Log(LogRow),
+    Event { org_id: i64, row: EventRow },
+    Log { org_id: i64, row: LogRow },
 }
 
 #[derive(Clone)]

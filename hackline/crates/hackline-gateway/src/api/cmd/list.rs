@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::auth::middleware::AuthedUser;
 use crate::auth::scope;
 use crate::db::cmd_outbox::{self, CmdRow};
+use crate::db::devices;
 use crate::error::GatewayError;
 use crate::state::AppState;
 
@@ -37,6 +38,9 @@ pub async fn handler(
 ) -> Result<Json<CmdPage>, GatewayError> {
     scope::check_device(&user, device_id)?;
     let conn = state.db.get()?;
+    // Cross-org gate (SCOPE.md §13 Phase 4): foreign-org device id
+    // returns 404 just like a non-existent id.
+    devices::get_in_org(&conn, user.org_id, device_id)?;
     let status = q.status.clone();
     let limit = q.limit;
     let cursor = q.cursor;

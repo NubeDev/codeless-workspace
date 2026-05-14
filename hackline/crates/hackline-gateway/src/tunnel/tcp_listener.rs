@@ -28,12 +28,13 @@ pub async fn run_tcp_listener(
     metrics: Metrics,
     tunnel_id: i64,
     device_id: i64,
+    org_slug: String,
     zid: Zid,
     device_port: u16,
     listen_port: u16,
 ) -> Result<(), GatewayError> {
     let listener = TcpListener::bind(format!("0.0.0.0:{listen_port}")).await?;
-    info!(listen_port, %zid, device_port, "tcp tunnel listener ready");
+    info!(listen_port, %zid, org = %org_slug, device_port, "tcp tunnel listener ready");
 
     loop {
         let (tcp, addr) = listener.accept().await?;
@@ -41,6 +42,7 @@ pub async fn run_tcp_listener(
         let z = zid.clone();
         let db = db.clone();
         let metrics = metrics.clone();
+        let org = org_slug.clone();
         tokio::spawn(async move {
             let peer = addr.to_string();
             run_bridged_connection(
@@ -50,6 +52,7 @@ pub async fn run_tcp_listener(
                 tunnel_id,
                 device_id,
                 "tcp",
+                org,
                 z,
                 device_port,
                 tcp,
@@ -70,6 +73,7 @@ pub async fn run_bridged_connection(
     tunnel_id: i64,
     device_id: i64,
     kind: &'static str,
+    org_slug: String,
     zid: Zid,
     device_port: u16,
     tcp: tokio::net::TcpStream,
@@ -101,6 +105,7 @@ pub async fn run_bridged_connection(
 
     let result = hackline_core::bridge::initiate_bridge(
         &session,
+        &org_slug,
         &zid,
         device_port,
         tcp,

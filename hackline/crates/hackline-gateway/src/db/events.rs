@@ -70,6 +70,7 @@ fn prune(tx: &Transaction<'_>, device_id: i64, cap: i64) -> Result<(), GatewayEr
 /// pass shell-style wildcards (`graph.slot.*`).
 pub fn list(
     conn: &Connection,
+    org_id: i64,
     device_id: Option<i64>,
     topic_glob: Option<&str>,
     since_ms: Option<i64>,
@@ -77,28 +78,35 @@ pub fn list(
     limit: i64,
 ) -> Result<Vec<EventRow>, GatewayError> {
     let limit = limit.clamp(1, 1000);
+    // Cross-org isolation (SCOPE.md §13 Phase 4): every event row
+    // belongs to a device, and a device belongs to exactly one org.
+    // The join filters foreign-org rows out before we even consider
+    // any caller-supplied filters.
     let mut sql = String::from(
-        "SELECT id, device_id, topic, ts, content_type, payload
-         FROM events WHERE 1=1",
+        "SELECT e.id, e.device_id, e.topic, e.ts, e.content_type, e.payload
+         FROM events e
+         JOIN devices d ON d.id = e.device_id
+         WHERE d.org_id = ?",
     );
     let mut args: Vec<rusqlite::types::Value> = Vec::new();
+    args.push(org_id.into());
     if let Some(d) = device_id {
-        sql.push_str(" AND device_id = ?");
+        sql.push_str(" AND e.device_id = ?");
         args.push(d.into());
     }
     if let Some(t) = topic_glob {
-        sql.push_str(" AND topic GLOB ?");
+        sql.push_str(" AND e.topic GLOB ?");
         args.push(t.to_string().into());
     }
     if let Some(s) = since_ms {
-        sql.push_str(" AND ts >= ?");
+        sql.push_str(" AND e.ts >= ?");
         args.push(s.into());
     }
     if let Some(c) = cursor {
-        sql.push_str(" AND id < ?");
+        sql.push_str(" AND e.id < ?");
         args.push(c.into());
     }
-    sql.push_str(" ORDER BY id DESC LIMIT ?");
+    sql.push_str(" ORDER BY e.id DESC LIMIT ?");
     args.push(limit.into());
 
     let mut stmt = conn.prepare(&sql)?;

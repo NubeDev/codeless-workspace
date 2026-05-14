@@ -44,6 +44,7 @@ mod tests {
     fn user(role: &str, scope: &str) -> User {
         User {
             id: 1,
+            org_id: 1,
             name: "u".into(),
             role: role.into(),
             device_scope: scope.into(),

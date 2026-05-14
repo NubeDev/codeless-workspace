@@ -78,7 +78,7 @@ async fn cmd_round_trip() -> anyhow::Result<()> {
     .await?;
 
     let zid = Zid::new(device_zid)?;
-    let client = ClientSession::from_session(dev_session.clone(), zid.clone());
+    let client = ClientSession::from_session(dev_session.clone(), "default", zid.clone());
 
     let stream = client.subscribe_cmd("block.install").await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -155,7 +155,7 @@ async fn api_round_trip() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(400)).await;
 
     let zid = Zid::new(device_zid)?;
-    let client = ClientSession::from_session(dev_session.clone(), zid.clone());
+    let client = ClientSession::from_session(dev_session.clone(), "default", zid.clone());
     let _serving = client
         .serve_api("ping", |req: ApiRequest| async move {
             Ok(ApiReply::json(json!({ "pong": req.payload })))
@@ -164,7 +164,7 @@ async fn api_round_trip() -> anyhow::Result<()> {
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let ke = hackline_proto::keyexpr::msg_api(&zid, "ping");
+    let ke = hackline_proto::keyexpr::msg_api("default", &zid, "ping");
     let req = ApiRequest {
         content_type: "application/json".into(),
         payload: json!({"x": 1}),

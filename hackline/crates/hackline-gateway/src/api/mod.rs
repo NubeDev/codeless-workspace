@@ -12,6 +12,7 @@ pub mod events;
 pub mod health;
 pub mod logs;
 pub mod metrics;
+pub mod orgs;
 pub mod router;
 pub mod tunnels;
 pub mod users;

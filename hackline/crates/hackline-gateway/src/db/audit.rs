@@ -85,13 +85,28 @@ pub fn finalize_tunnel_session(
     Ok(())
 }
 
-pub fn list_recent(conn: &Connection, limit: i64) -> Result<Vec<AuditEntry>, GatewayError> {
+/// Recent audit rows visible to `org_id`. SCOPE.md §13 Phase 4:
+/// a row is visible iff its `device_id` lives in the caller's org,
+/// or it has no device id (claim, auth.login) and its `user_id`
+/// belongs to the caller's org. Rows referencing a device the caller
+/// doesn't own (or a user in another org) are filtered out at the
+/// SQL level so a cross-org caller cannot even count them.
+pub fn list_recent(
+    conn: &Connection,
+    org_id: i64,
+    limit: i64,
+) -> Result<Vec<AuditEntry>, GatewayError> {
     let mut stmt = conn.prepare(
-        "SELECT id, ts, ts_close, user_id, device_id, tunnel_id,
-                request_id, action, peer, bytes_up, bytes_down, detail
-         FROM audit ORDER BY id DESC LIMIT ?1",
+        "SELECT a.id, a.ts, a.ts_close, a.user_id, a.device_id, a.tunnel_id,
+                a.request_id, a.action, a.peer, a.bytes_up, a.bytes_down, a.detail
+         FROM audit a
+         LEFT JOIN devices d ON d.id = a.device_id
+         LEFT JOIN users   u ON u.id = a.user_id
+         WHERE (a.device_id IS NULL OR d.org_id = ?1)
+           AND (a.user_id   IS NULL OR u.org_id = ?1)
+         ORDER BY a.id DESC LIMIT ?2",
     )?;
-    let rows = stmt.query_map(params![limit], |row| {
+    let rows = stmt.query_map(params![org_id, limit], |row| {
         Ok(AuditEntry {
             id: row.get(0)?,
             ts: row.get(1)?,

@@ -10,6 +10,7 @@ pub mod devices;
 pub mod events;
 pub mod logs;
 pub mod migrations;
+pub mod orgs;
 pub mod pool;
 pub mod tunnels;
 pub mod users;

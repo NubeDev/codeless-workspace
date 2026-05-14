@@ -25,6 +25,9 @@ pub struct TunnelWithZid {
     pub id: i64,
     pub device_id: i64,
     pub zid: String,
+    /// Owning org's slug; the tunnel listener needs it to build the
+    /// `hackline/<org_slug>/<zid>/...` keyexpr the agent listens on.
+    pub org_slug: String,
     pub kind: String,
     pub local_port: u16,
     pub public_port: u16,
@@ -57,6 +60,21 @@ pub fn list(conn: &Connection) -> Result<Vec<Tunnel>, GatewayError> {
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
+/// Tunnels visible to `org_id` — the join filters by the owning
+/// device's org (SCOPE.md §13 Phase 4).
+pub fn list_in_org(conn: &Connection, org_id: i64) -> Result<Vec<Tunnel>, GatewayError> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.device_id, t.kind, t.local_port, t.public_hostname,
+                t.public_port, t.enabled, t.created_at
+         FROM tunnels t
+         JOIN devices d ON d.id = t.device_id
+         WHERE d.org_id = ?1
+         ORDER BY t.id",
+    )?;
+    let rows = stmt.query_map(params![org_id], row_to_tunnel)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 pub fn get(conn: &Connection, id: i64) -> Result<Tunnel, GatewayError> {
     conn.query_row(
         "SELECT id, device_id, kind, local_port, public_hostname, public_port, enabled, created_at
@@ -70,8 +88,16 @@ pub fn get(conn: &Connection, id: i64) -> Result<Tunnel, GatewayError> {
     })
 }
 
-pub fn delete(conn: &Connection, id: i64) -> Result<bool, GatewayError> {
-    let n = conn.execute("DELETE FROM tunnels WHERE id = ?1", params![id])?;
+/// Delete a tunnel iff its owning device belongs to `org_id`. Foreign
+/// org returns `false` (which handlers translate to 404 — no way to
+/// distinguish from "no such tunnel").
+pub fn delete_in_org(conn: &Connection, org_id: i64, id: i64) -> Result<bool, GatewayError> {
+    let n = conn.execute(
+        "DELETE FROM tunnels
+         WHERE id = ?1
+           AND device_id IN (SELECT id FROM devices WHERE org_id = ?2)",
+        params![id, org_id],
+    )?;
     Ok(n > 0)
 }
 
@@ -79,9 +105,10 @@ pub fn delete(conn: &Connection, id: i64) -> Result<bool, GatewayError> {
 /// tunnel manager to spin up listeners.
 pub fn list_active_tcp(conn: &Connection) -> Result<Vec<TunnelWithZid>, GatewayError> {
     let mut stmt = conn.prepare(
-        "SELECT t.id, t.device_id, d.zid, t.kind, t.local_port, t.public_port, t.enabled
+        "SELECT t.id, t.device_id, d.zid, o.slug, t.kind, t.local_port, t.public_port, t.enabled
          FROM tunnels t
          JOIN devices d ON d.id = t.device_id
+         JOIN orgs    o ON o.id = d.org_id
          WHERE t.enabled = 1 AND t.kind = 'tcp' AND t.public_port IS NOT NULL",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -89,10 +116,11 @@ pub fn list_active_tcp(conn: &Connection) -> Result<Vec<TunnelWithZid>, GatewayE
             id: row.get(0)?,
             device_id: row.get(1)?,
             zid: row.get(2)?,
-            kind: row.get(3)?,
-            local_port: row.get::<_, i64>(4)? as u16,
-            public_port: row.get::<_, i64>(5)? as u16,
-            enabled: row.get(6)?,
+            org_slug: row.get(3)?,
+            kind: row.get(4)?,
+            local_port: row.get::<_, i64>(5)? as u16,
+            public_port: row.get::<_, i64>(6)? as u16,
+            enabled: row.get(7)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)

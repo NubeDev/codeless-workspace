@@ -13,6 +13,7 @@ use crate::auth::middleware::AuthedUser;
 use crate::auth::scope;
 use crate::db::audit;
 use crate::db::cmd_outbox::{self, CMD_DEFAULT_TTL_MS};
+use crate::db::devices;
 use crate::error::GatewayError;
 use crate::state::AppState;
 
@@ -36,6 +37,19 @@ pub async fn handler(
     Json(body): Json<SendCmd>,
 ) -> Result<(StatusCode, Json<SendCmdResponse>), GatewayError> {
     scope::check_device(&user, device_id)?;
+    // Cross-org isolation (SCOPE.md §13 Phase 4) — done before any
+    // write so we don't allocate a cmd row pointing at someone
+    // else's device.
+    {
+        let db = state.db.clone();
+        let org_id = user.org_id;
+        tokio::task::spawn_blocking(move || {
+            let conn = db.get()?;
+            devices::get_in_org(&conn, org_id, device_id)
+        })
+        .await
+        .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
+    }
 
     if topic.is_empty() {
         return Err(GatewayError::BadRequest("topic must not be empty".into()));

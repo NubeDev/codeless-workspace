@@ -21,11 +21,12 @@ fn default_limit() -> i64 {
 
 pub async fn handler(
     State(state): State<AppState>,
-    AuthedUser(_caller): AuthedUser,
+    AuthedUser(caller): AuthedUser,
     Query(q): Query<AuditQuery>,
 ) -> Result<Json<Vec<audit::AuditEntry>>, GatewayError> {
     let conn = state.db.get()?;
-    let entries = tokio::task::spawn_blocking(move || audit::list_recent(&conn, q.limit))
+    let org_id = caller.org_id;
+    let entries = tokio::task::spawn_blocking(move || audit::list_recent(&conn, org_id, q.limit))
         .await
         .unwrap()?;
     Ok(Json(entries))

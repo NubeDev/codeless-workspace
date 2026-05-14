@@ -17,11 +17,12 @@ pub struct CreateDevice {
 
 pub async fn handler(
     State(state): State<AppState>,
-    AuthedUser(_caller): AuthedUser,
+    AuthedUser(caller): AuthedUser,
     Json(body): Json<CreateDevice>,
 ) -> Result<(axum::http::StatusCode, Json<devices::Device>), GatewayError> {
     let conn = state.db.get()?;
-    let device = tokio::task::spawn_blocking(move || devices::insert(&conn, &body.zid, &body.label))
+    let org_id = caller.org_id;
+    let device = tokio::task::spawn_blocking(move || devices::insert(&conn, org_id, &body.zid, &body.label))
         .await
         .unwrap()?;
     Ok((axum::http::StatusCode::CREATED, Json(device)))

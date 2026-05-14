@@ -12,7 +12,15 @@ pub struct Credentials {
     pub token: String,
     pub user_id: i64,
     pub name: String,
+    /// Org slug captured at login time (SCOPE.md §13 Phase 4). Older
+    /// caches without this field default to `default`; clients use
+    /// it for telemetry display only — the server enforces real
+    /// isolation off the bearer token.
+    #[serde(default = "default_org_slug")]
+    pub org: String,
 }
+
+fn default_org_slug() -> String { "default".into() }
 
 fn credentials_path() -> anyhow::Result<PathBuf> {
     let dir = dirs::config_dir()

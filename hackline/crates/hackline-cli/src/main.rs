@@ -40,6 +40,10 @@ enum Command {
         /// Owner name
         #[arg(long, default_value = "owner")]
         name: String,
+        /// Org slug to seed at claim time. Omit to land in the
+        /// `default` org (single-tenant deployments).
+        #[arg(long)]
+        org: Option<String>,
     },
     /// Print cached identity
     Whoami,
@@ -52,6 +56,9 @@ enum Command {
     /// User management
     #[command(subcommand)]
     User(UserCmd),
+    /// Org (tenant) management — SCOPE.md §13 Phase 4.
+    #[command(subcommand)]
+    Org(OrgCmd),
     /// Message-plane events (live tail + history)
     #[command(subcommand)]
     Events(EventsCmd),
@@ -199,6 +206,21 @@ enum TunnelCmd {
 }
 
 #[derive(Subcommand)]
+enum OrgCmd {
+    /// Create a new org (owner-only).
+    Create {
+        #[arg(long)]
+        slug: String,
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// List every org on the gateway (owner-only).
+    List,
+    /// Show the caller's own org.
+    Inspect,
+}
+
+#[derive(Subcommand)]
 enum UserCmd {
     /// Create a user
     Add {
@@ -222,8 +244,8 @@ async fn main() -> anyhow::Result<()> {
     let json = cli.json;
 
     match cli.command {
-        Command::Login { server, token, name } => {
-            cmd::login::run(&server, &token, &name).await?;
+        Command::Login { server, token, name, org } => {
+            cmd::login::run(&server, &token, &name, org.as_deref()).await?;
         }
         Command::Whoami => {
             cmd::whoami::run(json)?;
@@ -245,6 +267,16 @@ async fn main() -> anyhow::Result<()> {
                 }
                 TunnelCmd::List => cmd::tunnel::list::run(&c, json).await?,
                 TunnelCmd::Remove { id } => cmd::tunnel::remove::run(&c, id).await?,
+            }
+        }
+        Command::Org(sub) => {
+            let c = client::Client::from_args_or_cache(cli.server, cli.token)?;
+            match sub {
+                OrgCmd::Create { slug, name } => {
+                    cmd::org::create(&c, &slug, name.as_deref(), json).await?
+                }
+                OrgCmd::List => cmd::org::list(&c, json).await?,
+                OrgCmd::Inspect => cmd::org::inspect(&c, json).await?,
             }
         }
         Command::User(sub) => {

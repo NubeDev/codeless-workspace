@@ -37,6 +37,7 @@ pub struct BridgeBytes {
 /// run the byte bridge until either side closes.
 pub async fn accept_bridge(
     session: &Session,
+    org: &str,
     zid: &Zid,
     port: u16,
     query: zenoh::query::Query,
@@ -60,7 +61,7 @@ pub async fn accept_bridge(
                 message: Some(format!("tcp connect failed: {e}")),
             };
             let _ = query.reply(
-                keyexpr::connect(zid, port),
+                keyexpr::connect(org, zid, port),
                 serde_json::to_vec(&ack).unwrap(),
             ).await;
             return Err(BridgeError::Io(e));
@@ -73,7 +74,7 @@ pub async fn accept_bridge(
         message: None,
     };
     query.reply(
-        keyexpr::connect(zid, port),
+        keyexpr::connect(org, zid, port),
         serde_json::to_vec(&ack).unwrap(),
     ).await.map_err(BridgeError::Zenoh)?;
 
@@ -81,8 +82,8 @@ pub async fn accept_bridge(
     // the gateway's get() hangs until its internal timeout fires.
     drop(query);
 
-    let ke_from_gw = keyexpr::stream_gw(zid, &request_id);
-    let ke_to_gw = keyexpr::stream_dev(zid, &request_id);
+    let ke_from_gw = keyexpr::stream_gw(org, zid, &request_id);
+    let ke_to_gw = keyexpr::stream_dev(org, zid, &request_id);
 
     run_bridge(session, tcp, &ke_from_gw, &ke_to_gw).await.map(|_| ())
 }
@@ -91,13 +92,14 @@ pub async fn accept_bridge(
 /// the byte bridge on the paired pub/sub channels.
 pub async fn initiate_bridge(
     session: &Session,
+    org: &str,
     zid: &Zid,
     port: u16,
     tcp: TcpStream,
     peer_addr: Option<String>,
 ) -> Result<BridgeBytes, BridgeError> {
     let (_request_id, bytes) =
-        initiate_bridge_with_id(session, zid, port, tcp, peer_addr).await?;
+        initiate_bridge_with_id(session, org, zid, port, tcp, peer_addr).await?;
     Ok(bytes)
 }
 
@@ -107,6 +109,7 @@ pub async fn initiate_bridge(
 /// row alongside the byte counters.
 pub async fn initiate_bridge_with_id(
     session: &Session,
+    org: &str,
     zid: &Zid,
     port: u16,
     tcp: TcpStream,
@@ -120,7 +123,7 @@ pub async fn initiate_bridge_with_id(
 
     debug!(%request_id, %zid, port, "initiating bridge");
 
-    let ke = keyexpr::connect(zid, port);
+    let ke = keyexpr::connect(org, zid, port);
     let replies = session
         .get(&ke)
         .payload(ZBytes::from(serde_json::to_vec(&req).unwrap()))
@@ -149,8 +152,8 @@ pub async fn initiate_bridge_with_id(
         ));
     }
 
-    let ke_to_agent = keyexpr::stream_gw(zid, &request_id);
-    let ke_from_agent = keyexpr::stream_dev(zid, &request_id);
+    let ke_to_agent = keyexpr::stream_gw(org, zid, &request_id);
+    let ke_from_agent = keyexpr::stream_dev(org, zid, &request_id);
 
     let bytes = run_bridge(session, tcp, &ke_from_agent, &ke_to_agent).await?;
     Ok((request_id, bytes))

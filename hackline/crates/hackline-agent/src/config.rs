@@ -12,6 +12,13 @@ use crate::error::AgentError;
 #[serde(deny_unknown_fields)]
 pub struct AgentConfig {
     pub zid: String,
+    /// Tenant org slug (SCOPE.md §13 Phase 4). Determines the
+    /// `hackline/<org>/<zid>/...` Zenoh namespace this agent
+    /// declares its queryables under. Single-tenant deployments
+    /// leave it at the default; multi-tenant deployments pin each
+    /// device to its owner org's slug.
+    #[serde(default = "default_org")]
+    pub org: String,
     pub allowed_ports: Vec<u16>,
     #[serde(default)]
     pub label: Option<String>,
@@ -19,6 +26,8 @@ pub struct AgentConfig {
     #[serde(default)]
     pub log: LogConfig,
 }
+
+fn default_org() -> String { "default".into() }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

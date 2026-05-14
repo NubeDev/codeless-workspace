@@ -41,6 +41,12 @@ pub enum ClientError {
 #[derive(Clone)]
 pub struct ClientSession {
     inner: Arc<Session>,
+    /// Tenant org slug (SCOPE.md §13 Phase 4). Determines the
+    /// `hackline/<org>/...` namespace prefix that every published
+    /// keyexpr lives under. The SDK rejects calls that would publish
+    /// outside this prefix; the Zenoh ACL is the same line of
+    /// defence at the router edge.
+    org: String,
     zid: Zid,
 }
 
@@ -49,9 +55,10 @@ impl ClientSession {
     /// opening to the host application (rubix-agent, tests) because
     /// the right config layer differs per consumer; the SDK adds the
     /// hackline-specific message-plane conventions on top.
-    pub fn from_session(session: Arc<Session>, zid: Zid) -> Self {
+    pub fn from_session(session: Arc<Session>, org: impl Into<String>, zid: Zid) -> Self {
         Self {
             inner: session,
+            org: org.into(),
             zid,
         }
     }
@@ -59,14 +66,18 @@ impl ClientSession {
     /// Convenience constructor that derives the device `Zid` from the
     /// session's own Zenoh ZID. Fails if the Zenoh ZID isn't a valid
     /// `hackline_proto::Zid` (length 2..=32, lowercase hex).
-    pub fn from_session_auto(session: Arc<Session>) -> Result<Self, ClientError> {
+    pub fn from_session_auto(session: Arc<Session>, org: impl Into<String>) -> Result<Self, ClientError> {
         let raw = session.zid().to_string();
         let zid = Zid::new(&raw).map_err(|e| ClientError::Zid(e.to_string()))?;
-        Ok(Self::from_session(session, zid))
+        Ok(Self::from_session(session, org, zid))
     }
 
     pub fn zid(&self) -> &Zid {
         &self.zid
+    }
+
+    pub fn org(&self) -> &str {
+        &self.org
     }
 
     /// Publish a fire-and-forget event under
@@ -81,7 +92,7 @@ impl ClientSession {
     ) -> Result<(), ClientError> {
         validate_topic(topic)?;
         let env = MsgEnvelope::new_event(payload);
-        let ke = keyexpr::msg_event(&self.zid, topic);
+        let ke = keyexpr::msg_event(&self.org, &self.zid, topic);
         self.publish(&ke, &env).await
     }
 
@@ -97,7 +108,7 @@ impl ClientSession {
     ) -> Result<(), ClientError> {
         validate_topic(topic)?;
         let env = MsgEnvelope::new_log(level, payload);
-        let ke = keyexpr::msg_log(&self.zid, topic);
+        let ke = keyexpr::msg_log(&self.org, &self.zid, topic);
         self.publish(&ke, &env).await
     }
 
@@ -123,7 +134,7 @@ impl ClientSession {
     /// work (SCOPE.md §8.1).
     pub async fn subscribe_cmd(&self, topic: &str) -> Result<CmdStream, ClientError> {
         validate_topic_subscribe(topic)?;
-        let ke = keyexpr::msg_cmd(&self.zid, topic);
+        let ke = keyexpr::msg_cmd(&self.org, &self.zid, topic);
         let sub = self
             .inner
             .declare_subscriber(ke)
@@ -131,6 +142,7 @@ impl ClientSession {
             .map_err(ClientError::Zenoh)?;
         Ok(CmdStream {
             session: self.inner.clone(),
+            org: self.org.clone(),
             zid: self.zid.clone(),
             sub,
         })
@@ -155,7 +167,7 @@ impl ClientSession {
         Fut: Future<Output = Result<ApiReply, ClientError>> + Send,
     {
         validate_topic(topic)?;
-        let ke = keyexpr::msg_api(&self.zid, topic);
+        let ke = keyexpr::msg_api(&self.org, &self.zid, topic);
         let q = self
             .inner
             .declare_queryable(ke.clone())
@@ -201,6 +213,7 @@ impl ClientSession {
 /// `recv()`. Drop the stream to stop receiving new commands.
 pub struct CmdStream {
     session: Arc<Session>,
+    org: String,
     zid: Zid,
     sub: zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
 }
@@ -221,6 +234,7 @@ impl CmdStream {
             };
             return Some(CmdHandle {
                 session: self.session.clone(),
+                org: self.org.clone(),
                 zid: self.zid.clone(),
                 cmd_id: env.cmd_id,
                 envelope: env,
@@ -234,6 +248,7 @@ impl CmdStream {
 /// `cmd_id`.
 pub struct CmdHandle {
     session: Arc<Session>,
+    org: String,
     zid: Zid,
     pub cmd_id: uuid::Uuid,
     pub envelope: CmdEnvelope,
@@ -266,7 +281,7 @@ impl CmdHandle {
             detail,
         };
         let bytes = serde_json::to_vec(&ack)?;
-        let ke = keyexpr::msg_cmd_ack(&self.zid, &self.cmd_id);
+        let ke = keyexpr::msg_cmd_ack(&self.org, &self.zid, &self.cmd_id);
         self.session
             .put(ke, ZBytes::from(bytes))
             .await

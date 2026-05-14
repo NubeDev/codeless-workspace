@@ -50,15 +50,20 @@ pub async fn handler(
     }
 
     let db = state.db.clone();
-    let device = tokio::task::spawn_blocking(move || {
+    let org_id = user.org_id;
+    let (device, org_slug) = tokio::task::spawn_blocking(move || {
         let conn = db.get()?;
-        devices::get(&conn, device_id)
+        // Re-uses the org-scoped get for the 404 path, then resolves
+        // the slug. Two lookups are one round-trip on a hot
+        // connection and keep the org-isolation check explicit.
+        devices::get_in_org(&conn, org_id, device_id)?;
+        devices::get_with_org_slug(&conn, device_id)
     })
     .await
     .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
 
     let zid = Zid::new(&device.zid).map_err(|e| GatewayError::BadRequest(e.to_string()))?;
-    let ke = keyexpr::msg_api(&zid, &topic);
+    let ke = keyexpr::msg_api(&org_slug, &zid, &topic);
 
     let req = ApiRequest {
         content_type: body

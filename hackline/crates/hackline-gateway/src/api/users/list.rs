@@ -10,10 +10,11 @@ use crate::state::AppState;
 
 pub async fn handler(
     State(state): State<AppState>,
-    AuthedUser(_caller): AuthedUser,
+    AuthedUser(caller): AuthedUser,
 ) -> Result<Json<Vec<users::User>>, GatewayError> {
     let conn = state.db.get()?;
-    let list = tokio::task::spawn_blocking(move || users::list(&conn))
+    let org_id = caller.org_id;
+    let list = tokio::task::spawn_blocking(move || users::list_in_org(&conn, org_id))
         .await
         .unwrap()?;
     Ok(Json(list))

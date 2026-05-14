@@ -91,13 +91,14 @@ async fn handle_connection(
     let host_lookup = host.clone();
     let db_for_lookup = db.clone();
     let row = tokio::task::spawn_blocking(
-        move || -> Result<Option<(String, i64, i64, i64)>, GatewayError> {
+        move || -> Result<Option<(String, i64, i64, i64, String)>, GatewayError> {
             let conn = db_for_lookup.get()?;
             let r = conn
                 .query_row(
-                    "SELECT d.zid, t.local_port, t.id, t.device_id
+                    "SELECT d.zid, t.local_port, t.id, t.device_id, o.slug
                        FROM tunnels t
                        JOIN devices d ON d.id = t.device_id
+                       JOIN orgs    o ON o.id = d.org_id
                       WHERE t.kind = 'http'
                         AND t.public_hostname = ?1
                         AND t.enabled = 1",
@@ -108,6 +109,7 @@ async fn handle_connection(
                             r.get::<_, i64>(1)?,
                             r.get::<_, i64>(2)?,
                             r.get::<_, i64>(3)?,
+                            r.get::<_, String>(4)?,
                         ))
                     },
                 )
@@ -119,7 +121,7 @@ async fn handle_connection(
     .await
     .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
 
-    let (zid_str, local_port, tunnel_id, device_id) = row.ok_or_else(|| {
+    let (zid_str, local_port, tunnel_id, device_id, org_slug) = row.ok_or_else(|| {
         GatewayError::BadRequest(format!("no http tunnel for host `{host}`"))
     })?;
     let zid = Zid::new(&zid_str).map_err(|e| GatewayError::BadRequest(e.to_string()))?;
@@ -148,7 +150,7 @@ async fn handle_connection(
     };
 
     let bridge_result =
-        bridge_with_prefix(&session, &zid, local_port as u16, tcp, prefix, request_id).await;
+        bridge_with_prefix(&session, &org_slug, &zid, local_port as u16, tcp, prefix, request_id).await;
 
     metrics.dec_tunnel_active("http");
 
@@ -186,6 +188,7 @@ fn now_ms() -> i64 {
 /// the device's local HTTP server sees a complete request.
 async fn bridge_with_prefix(
     session: &Session,
+    org: &str,
     zid: &Zid,
     port: u16,
     tcp: tokio::net::TcpStream,
@@ -201,7 +204,7 @@ async fn bridge_with_prefix(
         request_id,
         peer: None,
     };
-    let ke_connect = hackline_proto::keyexpr::connect(zid, port);
+    let ke_connect = hackline_proto::keyexpr::connect(org, zid, port);
     let replies = session
         .get(&ke_connect)
         .payload(ZBytes::from(serde_json::to_vec(&req).unwrap()))
@@ -228,8 +231,8 @@ async fn bridge_with_prefix(
         ));
     }
 
-    let ke_to_dev = hackline_proto::keyexpr::stream_gw(zid, &request_id);
-    let ke_from_dev = hackline_proto::keyexpr::stream_dev(zid, &request_id);
+    let ke_to_dev = hackline_proto::keyexpr::stream_gw(org, zid, &request_id);
+    let ke_from_dev = hackline_proto::keyexpr::stream_dev(org, zid, &request_id);
 
     let publisher = session
         .declare_publisher(ke_to_dev)

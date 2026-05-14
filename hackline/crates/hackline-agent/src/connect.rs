@@ -15,26 +15,29 @@ use crate::error::AgentError;
 /// Run one queryable per allowed port. Blocks until all queryables close.
 pub async fn serve_connect(
     session: Arc<Session>,
+    org: &str,
     zid: &Zid,
     allowed_ports: &[u16],
 ) -> Result<(), AgentError> {
     let mut handles = Vec::with_capacity(allowed_ports.len());
 
     for &port in allowed_ports {
-        let ke = keyexpr::connect(zid, port);
+        let ke = keyexpr::connect(org, zid, port);
         let q = session.declare_queryable(&ke).await?;
         info!(ke = %ke, "queryable ready");
 
         let s = session.clone();
         let z = zid.clone();
+        let org = org.to_owned();
         handles.push(tokio::spawn(async move {
             loop {
                 match q.recv_async().await {
                     Ok(query) => {
                         let s2 = s.clone();
                         let z2 = z.clone();
+                        let org2 = org.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = bridge::accept_bridge(&s2, &z2, port, query).await {
+                            if let Err(e) = bridge::accept_bridge(&s2, &org2, &z2, port, query).await {
                                 warn!(port, "bridge error: {e}");
                             }
                         });

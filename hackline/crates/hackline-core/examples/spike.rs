@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run_agent(session: &zenoh::Session, zid: &Zid, port: u16) -> Result<()> {
-    let ke = hackline_proto::keyexpr::connect(zid, port);
+    let ke = hackline_proto::keyexpr::connect("default", zid, port);
     let queryable = session
         .declare_queryable(&ke)
         .await
@@ -71,7 +71,7 @@ async fn run_agent(session: &zenoh::Session, zid: &Zid, port: u16) -> Result<()>
                 let s = session.clone();
                 let z = zid.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = bridge::accept_bridge(&s, &z, port, query).await {
+                    if let Err(e) = bridge::accept_bridge(&s, "default", &z, port, query).await {
                         warn!("accept_bridge error: {e}");
                     }
                 });
@@ -99,7 +99,7 @@ async fn run_gateway(
         let z = zid.clone();
         tokio::spawn(async move {
             if let Err(e) =
-                bridge::initiate_bridge(&s, &z, device_port, tcp, Some(addr.to_string())).await
+                bridge::initiate_bridge(&s, "default", &z, device_port, tcp, Some(addr.to_string())).await
             {
                 warn!(%addr, "initiate_bridge error: {e}");
             }

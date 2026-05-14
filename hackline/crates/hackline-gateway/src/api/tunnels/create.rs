@@ -22,11 +22,22 @@ pub struct CreateTunnel {
 
 pub async fn handler(
     State(state): State<AppState>,
-    AuthedUser(_caller): AuthedUser,
+    AuthedUser(caller): AuthedUser,
     Json(body): Json<CreateTunnel>,
 ) -> Result<(axum::http::StatusCode, Json<tunnels::Tunnel>), GatewayError> {
     let db = state.db.clone();
     let conn = db.get()?;
+    let org_id = caller.org_id;
+    let device_id = body.device_id;
+    // Cross-org isolation: verify the device belongs to the caller's
+    // org before opening a public listener for it. Returns 404 — see
+    // db::devices::get_in_org for the leak-the-minimum design note.
+    {
+        let conn = db.get()?;
+        tokio::task::spawn_blocking(move || devices::get_in_org(&conn, org_id, device_id))
+            .await
+            .unwrap()?;
+    }
     let tunnel = tokio::task::spawn_blocking(move || {
         tunnels::insert(
             &conn,
@@ -47,11 +58,18 @@ pub async fn handler(
             let tid = tunnel.id;
             let did = tunnel.device_id;
             let lp = tunnel.local_port;
-            if let Ok(device) = tokio::task::spawn_blocking(move || devices::get(&conn, did)).await.unwrap() {
+            if let Ok((device, org_slug)) = tokio::task::spawn_blocking(move || {
+                let device = devices::get_in_org(&conn, org_id, did)?;
+                let org = crate::db::orgs::get(&conn, device.org_id)?;
+                Ok::<_, GatewayError>((device, org.slug))
+            })
+            .await
+            .unwrap() {
                 let twz = tunnels::TunnelWithZid {
                     id: tid,
                     device_id: did,
                     zid: device.zid,
+                    org_slug,
                     kind: "tcp".into(),
                     local_port: lp as u16,
                     public_port: public_port as u16,

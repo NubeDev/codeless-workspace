@@ -3,6 +3,7 @@
 use rusqlite::{params, Connection};
 
 use crate::auth::token::{self, TokenPair};
+use crate::db::orgs;
 use crate::error::GatewayError;
 
 /// Insert a pending claim row if the `users` table is empty AND no
@@ -50,6 +51,7 @@ pub fn consume(
     conn: &Connection,
     claim_token: &str,
     owner_name: &str,
+    org_slug: Option<&str>,
 ) -> Result<TokenPair, GatewayError> {
     let claim_hash = token::sha256_hex(claim_token);
 
@@ -73,9 +75,26 @@ pub fn consume(
     let bearer = token::generate();
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM claim_pending WHERE id = 1", [])?;
+
+    // SCOPE.md §13 Phase 4: the claim flow seeds the operator's org.
+    // If the caller passes a non-default slug, allocate a fresh org;
+    // otherwise stamp the owner into the seeded `default` org so
+    // single-tenant gateways need not think about org ids at all.
+    let org_id = match org_slug {
+        Some(slug) if slug != orgs::DEFAULT_ORG_SLUG => {
+            let existing = orgs::get_by_slug(&tx, slug)?;
+            match existing {
+                Some(o) => o.id,
+                None => orgs::insert(&tx, slug, slug)?.id,
+            }
+        }
+        _ => orgs::DEFAULT_ORG_ID,
+    };
+
     tx.execute(
-        "INSERT INTO users (name, role, token_hash, created_at) VALUES (?1, 'owner', ?2, unixepoch())",
-        params![owner_name, bearer.hash],
+        "INSERT INTO users (org_id, name, role, token_hash, created_at)
+         VALUES (?1, ?2, 'owner', ?3, unixepoch())",
+        params![org_id, owner_name, bearer.hash],
     )?;
     tx.commit()?;
 

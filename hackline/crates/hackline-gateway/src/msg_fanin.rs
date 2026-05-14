@@ -80,7 +80,7 @@ async fn handle_sample(
     ke: &str,
     payload: &[u8],
 ) -> Result<(), GatewayError> {
-    let (zid, kind, topic) = keyexpr::parse_msg_keyexpr(ke)
+    let (org_slug, zid, kind, topic) = keyexpr::parse_msg_keyexpr(ke)
         .ok_or_else(|| GatewayError::BadRequest(format!("unparsable keyexpr: {ke}")))?;
     if kind != expected_kind {
         return Err(GatewayError::BadRequest(format!(
@@ -97,8 +97,22 @@ async fn handle_sample(
 
     let result = tokio::task::spawn_blocking(move || -> Result<MsgEvent, GatewayError> {
         let mut conn = db.get()?;
-        let device_id = events::device_id_for_zid(&conn, &zid_str)?
+        // Cross-org isolation (SCOPE.md §13 Phase 4): the published
+        // keyexpr's org slug must match the device row's owning org
+        // before we persist or fan out. A device publishing under
+        // someone else's prefix is an ACL violation at the Zenoh
+        // edge in production deployments; the gateway drops it here
+        // as a belt-and-braces second check.
+        let (device_id, device_org_id) = crate::db::devices::get_by_zid(&conn, &zid_str)?
             .ok_or_else(|| GatewayError::BadRequest(format!("unknown device zid {zid_str}")))?;
+        let org_row = crate::db::orgs::get(&conn, device_org_id)?;
+        if org_row.slug != org_slug {
+            return Err(GatewayError::BadRequest(format!(
+                "device {zid_str} publishing under org `{org_slug}` but owns org `{}`",
+                org_row.slug
+            )));
+        }
+        let device_org_id_captured = device_org_id;
         match kind {
             MsgKind::Event => {
                 let id = events::insert(
@@ -109,14 +123,17 @@ async fn handle_sample(
                     &env.content_type,
                     &env.payload,
                 )?;
-                Ok(MsgEvent::Event(events::EventRow {
-                    id,
-                    device_id,
-                    topic: topic_owned,
-                    ts: env.ts,
-                    content_type: env.content_type,
-                    payload: env.payload,
-                }))
+                Ok(MsgEvent::Event {
+                    org_id: device_org_id_captured,
+                    row: events::EventRow {
+                        id,
+                        device_id,
+                        topic: topic_owned,
+                        ts: env.ts,
+                        content_type: env.content_type,
+                        payload: env.payload,
+                    },
+                })
             }
             MsgKind::Log => {
                 let level = env.log_level().as_str().to_owned();
@@ -129,15 +146,18 @@ async fn handle_sample(
                     &env.content_type,
                     &env.payload,
                 )?;
-                Ok(MsgEvent::Log(logs::LogRow {
-                    id,
-                    device_id,
-                    topic: topic_owned,
-                    ts: env.ts,
-                    level,
-                    content_type: env.content_type,
-                    payload: env.payload,
-                }))
+                Ok(MsgEvent::Log {
+                    org_id: device_org_id_captured,
+                    row: logs::LogRow {
+                        id,
+                        device_id,
+                        topic: topic_owned,
+                        ts: env.ts,
+                        level,
+                        content_type: env.content_type,
+                        payload: env.payload,
+                    },
+                })
             }
         }
     })
@@ -145,8 +165,8 @@ async fn handle_sample(
     .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
 
     match &result {
-        MsgEvent::Event(r) => metrics.inc_event(&r.topic),
-        MsgEvent::Log(r) => metrics.inc_log(&r.level),
+        MsgEvent::Event { row, .. } => metrics.inc_event(&row.topic),
+        MsgEvent::Log { row, .. } => metrics.inc_log(&row.level),
     }
     debug!(ke = %ke, "fan-in persisted + broadcast");
     bus.publish(result);

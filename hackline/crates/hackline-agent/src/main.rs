@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!(%zid, zenoh_zid = %session.zid(), "zenoh session open");
 
-    connect::serve_connect(session, &zid, &cfg.allowed_ports).await?;
+    connect::serve_connect(session, &cfg.org, &zid, &cfg.allowed_ports).await?;
     Ok(())
 }
 

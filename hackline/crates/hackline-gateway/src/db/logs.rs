@@ -60,6 +60,7 @@ fn prune(tx: &Transaction<'_>, device_id: i64, cap: i64) -> Result<(), GatewayEr
 
 pub fn list(
     conn: &Connection,
+    org_id: i64,
     device_id: Option<i64>,
     topic_glob: Option<&str>,
     level: Option<&str>,
@@ -68,32 +69,37 @@ pub fn list(
     limit: i64,
 ) -> Result<Vec<LogRow>, GatewayError> {
     let limit = limit.clamp(1, 1000);
+    // Cross-org isolation (SCOPE.md §13 Phase 4) — see `events::list`
+    // for the equivalent join shape.
     let mut sql = String::from(
-        "SELECT id, device_id, topic, ts, level, content_type, payload
-         FROM logs WHERE 1=1",
+        "SELECT l.id, l.device_id, l.topic, l.ts, l.level, l.content_type, l.payload
+         FROM logs l
+         JOIN devices d ON d.id = l.device_id
+         WHERE d.org_id = ?",
     );
     let mut args: Vec<rusqlite::types::Value> = Vec::new();
+    args.push(org_id.into());
     if let Some(d) = device_id {
-        sql.push_str(" AND device_id = ?");
+        sql.push_str(" AND l.device_id = ?");
         args.push(d.into());
     }
     if let Some(t) = topic_glob {
-        sql.push_str(" AND topic GLOB ?");
+        sql.push_str(" AND l.topic GLOB ?");
         args.push(t.to_string().into());
     }
-    if let Some(l) = level {
-        sql.push_str(" AND level = ?");
-        args.push(l.to_string().into());
+    if let Some(lv) = level {
+        sql.push_str(" AND l.level = ?");
+        args.push(lv.to_string().into());
     }
     if let Some(s) = since_ms {
-        sql.push_str(" AND ts >= ?");
+        sql.push_str(" AND l.ts >= ?");
         args.push(s.into());
     }
     if let Some(c) = cursor {
-        sql.push_str(" AND id < ?");
+        sql.push_str(" AND l.id < ?");
         args.push(c.into());
     }
-    sql.push_str(" ORDER BY id DESC LIMIT ?");
+    sql.push_str(" ORDER BY l.id DESC LIMIT ?");
     args.push(limit.into());
 
     let mut stmt = conn.prepare(&sql)?;

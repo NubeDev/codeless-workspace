@@ -33,14 +33,16 @@ pub struct LogsPage {
 
 pub async fn handler(
     State(state): State<AppState>,
-    AuthedUser(_caller): AuthedUser,
+    AuthedUser(caller): AuthedUser,
     Query(q): Query<LogsQuery>,
 ) -> Result<Json<LogsPage>, GatewayError> {
     let conn = state.db.get()?;
     let limit = q.limit;
+    let org_id = caller.org_id;
     let entries = tokio::task::spawn_blocking(move || {
         logs::list(
             &conn,
+            org_id,
             q.device,
             q.topic.as_deref(),
             q.level.as_deref(),

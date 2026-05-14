@@ -20,7 +20,8 @@ pub async fn handler(
         return Err(GatewayError::BadRequest("cannot delete yourself".into()));
     }
     let conn = state.db.get()?;
-    let deleted = tokio::task::spawn_blocking(move || users::delete(&conn, id))
+    let org_id = caller.org_id;
+    let deleted = tokio::task::spawn_blocking(move || users::delete_in_org(&conn, org_id, id))
         .await
         .unwrap()?;
     if deleted {

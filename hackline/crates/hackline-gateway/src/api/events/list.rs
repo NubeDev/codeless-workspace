@@ -34,14 +34,16 @@ pub struct EventsPage {
 
 pub async fn handler(
     State(state): State<AppState>,
-    AuthedUser(_caller): AuthedUser,
+    AuthedUser(caller): AuthedUser,
     Query(q): Query<EventsQuery>,
 ) -> Result<Json<EventsPage>, GatewayError> {
     let conn = state.db.get()?;
     let limit = q.limit;
+    let org_id = caller.org_id;
     let entries = tokio::task::spawn_blocking(move || {
         events::list(
             &conn,
+            org_id,
             q.device,
             q.topic.as_deref(),
             q.since,

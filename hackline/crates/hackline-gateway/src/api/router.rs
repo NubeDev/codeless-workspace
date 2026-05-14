@@ -25,6 +25,10 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/users/{id}", delete(super::users::delete::handler))
         .route("/v1/users/{id}/tokens", post(super::users::mint_token::handler))
         .route("/v1/audit", get(super::audit::list::handler))
+        // Multi-tenant orgs (SCOPE.md §13 Phase 4).
+        .route("/v1/orgs", get(super::orgs::list::handler))
+        .route("/v1/orgs", post(super::orgs::create::handler))
+        .route("/v1/orgs/me", get(super::orgs::get_me::handler))
         // Message plane
         .route("/v1/events", get(super::events::list::handler))
         .route("/v1/events/stream", get(super::events::stream::handler))

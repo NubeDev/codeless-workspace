@@ -9,6 +9,7 @@ use crate::auth::middleware::AuthedUser;
 use crate::auth::scope;
 use crate::db::audit;
 use crate::db::cmd_outbox;
+use crate::db::devices;
 use crate::error::GatewayError;
 use crate::state::AppState;
 
@@ -27,6 +28,21 @@ pub async fn handler(
     .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
     let row = row.ok_or(GatewayError::NotFound)?;
     scope::check_device(&user, row.device_id)?;
+    // Cross-org isolation (SCOPE.md §13 Phase 4): the cmd id is a
+    // bare UUID with no org in its path. The cmd_outbox row points
+    // at a device, and devices belong to exactly one org; if that
+    // org isn't the caller's, treat the row as if it doesn't exist.
+    {
+        let db = state.db.clone();
+        let org_id = user.org_id;
+        let device_id = row.device_id;
+        tokio::task::spawn_blocking(move || {
+            let conn = db.get()?;
+            devices::get_in_org(&conn, org_id, device_id)
+        })
+        .await
+        .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
+    }
 
     let db = state.db.clone();
     let cmd_id_for_cancel = cmd_id.clone();

@@ -72,6 +72,7 @@ fn spawn_listener(
     let metrics = metrics.clone();
     let tunnel_id = t.id;
     let device_id = t.device_id;
+    let org_slug = t.org_slug.clone();
     let local_port = t.local_port;
     let public_port = t.public_port;
     tokio::spawn(async move {
@@ -81,6 +82,7 @@ fn spawn_listener(
             metrics,
             tunnel_id,
             device_id,
+            org_slug,
             zid,
             local_port,
             public_port,

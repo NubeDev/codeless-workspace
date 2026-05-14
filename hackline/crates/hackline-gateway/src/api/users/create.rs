@@ -37,9 +37,10 @@ pub async fn handler(
         return Err(GatewayError::Unauthorized("only owner can create users".into()));
     }
     let conn = state.db.get()?;
+    let org_id = caller.org_id;
     let (user, raw_token) = tokio::task::spawn_blocking(move || {
         let pair = token::generate();
-        let u = users::insert(&conn, &body.name, &body.role, &pair.hash)?;
+        let u = users::insert(&conn, org_id, &body.name, &body.role, &pair.hash)?;
         Ok::<_, GatewayError>((u, pair.raw))
     })
     .await

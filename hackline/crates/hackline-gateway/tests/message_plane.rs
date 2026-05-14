@@ -86,7 +86,7 @@ async fn event_round_trip() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let zid = Zid::new(device_zid)?;
-    let client = ClientSession::from_session(dev_session.clone(), zid);
+    let client = ClientSession::from_session(dev_session.clone(), "default", zid);
     client
         .publish_event("graph.slot.temp.changed", json!({ "v": 21.4 }))
         .await?;
@@ -99,12 +99,12 @@ async fn event_round_trip() -> anyhow::Result<()> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while tokio::time::Instant::now() < deadline && !(saw_event && saw_log) {
         match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
-            Ok(Ok(MsgEvent::Event(row))) => {
+            Ok(Ok(MsgEvent::Event { row, .. })) => {
                 assert_eq!(row.topic, "graph.slot.temp.changed");
                 assert_eq!(row.payload["v"], 21.4);
                 saw_event = true;
             }
-            Ok(Ok(MsgEvent::Log(row))) => {
+            Ok(Ok(MsgEvent::Log { row, .. })) => {
                 assert_eq!(row.topic, "audit.entry");
                 assert_eq!(row.level, "warn");
                 saw_log = true;
@@ -117,11 +117,11 @@ async fn event_round_trip() -> anyhow::Result<()> {
 
     // Cursor API sees the same rows.
     let conn = db.get()?;
-    let evs = events::list(&conn, None, None, None, None, 10)?;
+    let evs = events::list(&conn, 1, None, None, None, None, 10)?;
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].topic, "graph.slot.temp.changed");
 
-    let lgs = logs::list(&conn, None, None, None, None, None, 10)?;
+    let lgs = logs::list(&conn, 1, None, None, None, None, None, 10)?;
     assert_eq!(lgs.len(), 1);
     assert_eq!(lgs[0].level, "warn");
 
