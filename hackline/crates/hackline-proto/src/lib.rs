@@ -6,7 +6,9 @@ pub mod connect;
 pub mod error;
 pub mod event;
 pub mod keyexpr;
+pub mod msg;
 pub mod zid;
 
 pub use connect::{ConnectAck, ConnectRequest};
+pub use msg::{LogLevel, MsgEnvelope};
 pub use zid::Zid;

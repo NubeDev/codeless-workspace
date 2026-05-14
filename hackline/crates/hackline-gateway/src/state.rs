@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::db::pool::DbPool;
+use crate::events_bus::MsgBus;
 use crate::tunnel::manager::TunnelEvent;
 
 #[derive(Clone)]
@@ -15,4 +16,5 @@ pub struct AppState {
     pub db: DbPool,
     pub zenoh: Arc<zenoh::Session>,
     pub tunnel_tx: mpsc::Sender<TunnelEvent>,
+    pub msg_bus: MsgBus,
 }

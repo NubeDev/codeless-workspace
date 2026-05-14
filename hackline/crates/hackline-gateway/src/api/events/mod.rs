@@ -1,4 +1,5 @@
-//! SSE event endpoints.
+//! `/v1/events` REST + SSE surface. The cursor API returns history,
+//! the SSE stream returns the live broadcast — same row shape.
 
-pub mod all;
-pub mod per_device;
+pub mod list;
+pub mod stream;

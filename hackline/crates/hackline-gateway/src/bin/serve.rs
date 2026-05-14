@@ -6,6 +6,8 @@ use std::sync::Arc;
 use hackline_gateway::api;
 use hackline_gateway::config::GatewayConfig;
 use hackline_gateway::db::{claim, migrations, pool};
+use hackline_gateway::events_bus::MsgBus;
+use hackline_gateway::msg_fanin;
 use hackline_gateway::state::AppState;
 use hackline_gateway::tunnel::manager;
 use tracing::info;
@@ -53,10 +55,15 @@ async fn main() -> anyhow::Result<()> {
 
     let (tunnel_tx, tunnel_rx) = tokio::sync::mpsc::channel(64);
 
+    let msg_bus = MsgBus::new();
+    let _fanin_handles =
+        msg_fanin::spawn(session.clone(), db.clone(), msg_bus.clone()).await?;
+
     let state = AppState {
         db: db.clone(),
         zenoh: session.clone(),
         tunnel_tx,
+        msg_bus,
     };
 
     let listen_addr = cfg.listen.as_deref().unwrap_or("127.0.0.1:8080");
@@ -64,7 +71,9 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(listen_addr).await?;
     info!(addr = listen_addr, "REST API listening");
 
-    // Run axum and tunnel manager concurrently.
+    // Run axum and tunnel manager concurrently. The fan-in subscriber
+    // tasks own their own loops and don't need to be in the select —
+    // dropping their handles when the process exits is enough.
     tokio::select! {
         result = axum::serve(listener, app) => {
             result?;

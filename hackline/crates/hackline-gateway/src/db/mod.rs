@@ -6,6 +6,8 @@
 pub mod audit;
 pub mod claim;
 pub mod devices;
+pub mod events;
+pub mod logs;
 pub mod migrations;
 pub mod pool;
 pub mod tunnels;

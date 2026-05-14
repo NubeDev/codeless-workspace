@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/hackline-proto",
     "crates/hackline-core",
+    "crates/hackline-client",
     "crates/hackline-agent",
     "crates/hackline-gateway",
     "crates/hackline-cli",

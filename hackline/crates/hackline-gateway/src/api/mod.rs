@@ -7,6 +7,7 @@ pub mod claim;
 pub mod devices;
 pub mod events;
 pub mod health;
+pub mod logs;
 pub mod router;
 pub mod tunnels;
 pub mod users;

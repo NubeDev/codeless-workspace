@@ -52,6 +52,52 @@ enum Command {
     /// User management
     #[command(subcommand)]
     User(UserCmd),
+    /// Message-plane events (live tail + history)
+    #[command(subcommand)]
+    Events(EventsCmd),
+    /// Message-plane logs (live tail + history)
+    #[command(subcommand)]
+    Log(LogCmd),
+}
+
+#[derive(Subcommand)]
+enum EventsCmd {
+    /// Follow the SSE stream and print one JSON line per delivery.
+    Tail {
+        #[arg(long)]
+        device: Option<i64>,
+        #[arg(long)]
+        topic: Option<String>,
+    },
+    /// Page the cursor API for historical entries.
+    History {
+        #[arg(long)]
+        device: Option<i64>,
+        #[arg(long)]
+        topic: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: i64,
+    },
+}
+
+#[derive(Subcommand)]
+enum LogCmd {
+    /// Follow the SSE log stream.
+    Tail {
+        #[arg(long)]
+        device: Option<i64>,
+        #[arg(long)]
+        topic: Option<String>,
+    },
+    /// Page the cursor API for historical log entries.
+    History {
+        #[arg(long)]
+        device: Option<i64>,
+        #[arg(long)]
+        topic: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -156,6 +202,28 @@ async fn main() -> anyhow::Result<()> {
                 UserCmd::Add { name, role } => cmd::user::add::run(&c, &name, &role, json).await?,
                 UserCmd::List => cmd::user::list::run(&c, json).await?,
                 UserCmd::Remove { id } => cmd::user::remove::run(&c, id).await?,
+            }
+        }
+        Command::Events(sub) => {
+            let c = client::Client::from_args_or_cache(cli.server, cli.token)?;
+            match sub {
+                EventsCmd::Tail { device, topic } => {
+                    cmd::events::tail(&c, device, topic.as_deref(), cmd::events::StreamKind::Events).await?
+                }
+                EventsCmd::History { device, topic, limit } => {
+                    cmd::events::history(&c, device, topic.as_deref(), limit, json, cmd::events::StreamKind::Events).await?
+                }
+            }
+        }
+        Command::Log(sub) => {
+            let c = client::Client::from_args_or_cache(cli.server, cli.token)?;
+            match sub {
+                LogCmd::Tail { device, topic } => {
+                    cmd::events::tail(&c, device, topic.as_deref(), cmd::events::StreamKind::Logs).await?
+                }
+                LogCmd::History { device, topic, limit } => {
+                    cmd::events::history(&c, device, topic.as_deref(), limit, json, cmd::events::StreamKind::Logs).await?
+                }
             }
         }
     }

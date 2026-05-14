@@ -7,6 +7,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod events_bus;
+pub mod msg_fanin;
 pub mod state;
 pub mod tunnel;
 pub mod zenoh_client;
