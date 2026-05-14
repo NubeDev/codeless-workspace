@@ -11,4 +11,7 @@ description = "Wire types and key-expression builders for hackline"
 workspace = true
 
 [dependencies]
-# Pure types only. No tokio, no zenoh, no filesystem. (SCOPE R1.)
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }

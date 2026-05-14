@@ -222,6 +222,89 @@ chain per device at `/etc/hackline/device.pem` (mode 0640, group
 `hackline`); ops adds an app to the group when installing it. Not
 treated as an app-vs-app security boundary (see §3.5).
 
+### 3.7 Constrained-device clients (ESP32 and friends)
+
+Not every device on the fabric is a Linux box running
+`hackline-agent`. We expect a meaningful population of **small
+microcontroller-class devices — ESP32s and similar — that join the
+Zenoh fabric directly as Zenoh clients** and participate in the
+message plane only (events, logs, cmd, optionally `api/*`). They do
+**not** run `hackline-agent`, do not host TCP tunnels, and have no
+local filesystem story worth speaking of.
+
+This is a first-class supported shape, not an afterthought. The
+design implications:
+
+- **Tunnel plane is N/A on these devices.** No `hackline-agent`, no
+  loopback to expose, no `Open` RPC handler. They appear in the
+  gateway's device list but with `tunnels: []` and any tunnel-listing
+  RPC must tolerate a device that exposes none.
+- **Message plane is the entire surface.** They publish
+  `hackline/<zid>/msg/event/...` and `.../log/...`, subscribe
+  `.../cmd/...`, and may serve `.../api/...` queryables. Same
+  keyexpr namespace as Linux devices — gateway code does not branch
+  on device class.
+- **Own ZID, own keypair, own ACL row** — no different from a Linux
+  device's `hackline-client` session in terms of trust model (§3.5).
+- **`hackline-client` SDK is Rust-first.** ESP32-S3 / -C3 / -C6 run
+  Rust on `esp-hal` / `esp-idf-svc` and Zenoh has a C client
+  (`zenoh-c`) plus an in-progress `zenoh-pico` for very constrained
+  targets. v0.1 ships docs + examples for Rust-on-ESP32 against
+  Zenoh-pico (or zenoh-c via `bindgen`); a hand-written
+  micro-SDK that hardcodes our keyexpr conventions and our
+  `hackline-proto` JSON envelopes is Phase 5 (see §14 Q6).
+
+#### 3.7.1 Cert / credential issuance
+
+These devices cannot do interactive claim flows, cannot run a CLI,
+and often arrive on the network already provisioned at the factory.
+**Hackline-gateway must be able to issue a Zenoh credential bundle
+(ZID + per-device keypair + Zenoh ACL grant) for a constrained
+device on operator request, and return that bundle in a form that
+can be flashed or written to the device out-of-band.**
+
+Concretely:
+
+```text
+# Operator pre-issues a credential bundle for a device that doesn't exist yet
+POST /v1/devices/issue
+  { class: "constrained", label: "sensor-rack-7", expires_in_days: 365 }
+--> { zid, key_bundle: <PEM/DER>, zenoh_config_snippet, gateway_ca_pem }
+```
+
+The operator flashes that bundle into the ESP32's NVS / SPIFFS at
+factory time (or pushes it via OTA from a pre-existing fleet tool).
+First time the device boots and joins Zenoh, gateway sees its
+liveliness token under its assigned ZID and the device row flips
+from `issued` to `online`.
+
+Differences from the Linux-device claim flow (§6):
+
+| | Linux device (`hackline-agent`) | Constrained (ESP32) |
+|---|---|---|
+| Initial enrollment | Device-initiated `POST /v1/claim` from the device itself | Operator-initiated `POST /v1/devices/issue` from the CLI/UI |
+| Identity material lives | `/etc/hackline/device.pem` written by the agent | NVS partition flashed before deployment |
+| Rotation | `hackline rotate <zid>` triggers agent to re-claim | Re-issue + re-flash (or OTA) — devices this small don't re-claim themselves |
+| Cert lifetime default | Long (multi-year) | Short-ish (1 year) — operator can shorten per-class |
+| Revocation | Pull ACL entry, agent disconnects | Pull ACL entry, device disconnects on next reconnect attempt |
+
+The `devices` table grows a `class` column (`linux | constrained`)
+and the issue/claim paths populate it. The gateway uses `class` to
+decide whether tunnel-plane RPCs are even valid for that device.
+
+#### 3.7.2 Why this matters now (not later)
+
+We make this a first-class concern in v0.1 rather than "we'll add
+ESP32 support eventually" because the **wire surface and the
+cert-issuance API are the things that lock in early**. If we ship
+`POST /v1/claim` as the only path to a working device, every ESP32
+that shows up later either gets a bolt-on second issuance API (with
+its own auth model and audit trail) or an awkward "pretend it's a
+Linux device" wrapper. Cheap to design in now, expensive to
+retrofit. The actual SDK + flashing tooling can land later (§14 Q6),
+but the gateway-side issuance endpoint and the `class` column ship
+with Phase 1 so we don't paint ourselves into a corner.
+
 ---
 
 ## 4. Crate layout
@@ -1185,10 +1268,19 @@ half-implemented surface from a later phase.
    confirm API stability before we'd need it.
 5. **Customer-facing branding** of `device-N.cloud.com` — wildcard
    cert per operator-org or per-customer subdomain? Phase 4.
-6. **`hackline-client` for non-Rust apps.** Phase 5+. WS-bridged
-   Zenoh in browser is the obvious path; embedded C apps would need a
-   thin C SDK or accept "use the Zenoh C client directly with
-   hackline keyexpr conventions documented."
+6. **`hackline-client` for non-Rust apps and constrained targets**
+   (see §3.7). Phase 5+. WS-bridged Zenoh in browser is the obvious
+   path for the JS SDK. For ESP32-class devices the strawman is
+   Rust-on-`esp-hal` against `zenoh-pico` with our keyexpr
+   conventions and `hackline-proto` JSON envelopes documented;
+   embedded C apps either get a thin C wrapper or use `zenoh-c`
+   directly with the same documented conventions. Decide in Phase 5
+   based on which constrained targets we actually have customers for.
+7. **`devices.class` enum extensibility** (see §3.7.1). v0.1 ships
+   `linux | constrained`. If/when we add browser-resident or
+   gateway-resident pseudo-devices the enum grows; keep the gateway
+   code that branches on `class` in one module so the surface is
+   small.
 
 ---
 

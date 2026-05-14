@@ -7,3 +7,6 @@ pub mod error;
 pub mod event;
 pub mod keyexpr;
 pub mod zid;
+
+pub use connect::{ConnectAck, ConnectRequest};
+pub use zid::Zid;

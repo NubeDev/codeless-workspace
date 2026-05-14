@@ -12,3 +12,19 @@ workspace = true
 
 [dependencies]
 hackline-proto = { path = "../hackline-proto" }
+tokio = { workspace = true }
+zenoh = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
+
+[[example]]
+name = "spike"
+path = "examples/spike.rs"
+
+[dev-dependencies]
+tokio = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
