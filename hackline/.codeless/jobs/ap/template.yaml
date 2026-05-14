@@ -4,7 +4,7 @@ goal: "Land Goal 4 (Phase 1.5 - message plane events+logs) and Goal 5 (Phase 2 -
 docs:
   - SCOPE.md
   - WORKFLOW.md
-
+  - CHAT.md
 stages:
   - title: "goal 4 - message plane: events + logs (SCOPE.md Phase 1.5). SDK publish_event/publish_log, gateway fan-in subscribers on hackline/*/msg/event/** and hackline/*/msg/log/**, events+logs tables with ring-buffer pruning, GET /v1/events, GET /v1/log, SSE streams, hackline events tail CLI. End with DOCS/sessions/2026-05-14-goal4-message-plane.md filled in to the same shape as goal3-auth-cli.md, and cargo check + cargo test clean."
     docs:
