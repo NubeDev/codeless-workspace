@@ -1239,8 +1239,54 @@ half-implemented surface from a later phase.
 
 ### Phase 4 — Multi-tenant orgs
 
-- `orgs` + `org_id` foreign keys on `users`, `devices`. Cross-org
-  isolation enforced at REST + Zenoh ACL (per-org keyexpr prefix).
+- `orgs` table (id, slug, name, created_at), seeded with a single
+  `default` org by `V005__orgs.sql`. `org_id` is a non-null foreign
+  key on `users` and `devices` and is backfilled to the `default`
+  org for every row that pre-dated the migration.
+- `AuthedUser` carries `org_id`. Every REST handler that scopes by
+  device or user filters rows by the caller's `org_id` first, then
+  applies the per-device customer-scope check from Phase 2. A row
+  belonging to a different org returns `404 not_found` (the same
+  shape as "row does not exist") — leaking the minimum, per the
+  long-standing rule that 403 reveals the row exists at all.
+- Keyexpr prefix becomes `hackline/<org_slug>/<zid>/...`. Tunnel
+  plane (`bridge`, `bridge-ack`) and message plane (`evt`, `log`,
+  `cmd`, `cmd-ack`, `api`) all live under this prefix; the
+  parser in `hackline-proto::keyexpr` is org-aware.
+  `hackline-agent` reads `org_slug` from its config; the gateway
+  composes the prefix from the device's row at bridge / publish
+  time. Zenoh ACL grants per org (one entry per slug) prevent a
+  device in org A from reaching org B's subscribers / queryables
+  even if it tries.
+- REST surface: `POST /v1/orgs` (owner-only, creates an org),
+  `GET /v1/orgs` (owner-only, lists every org on the gateway),
+  `GET /v1/orgs/me` (any authenticated caller, returns the
+  caller's own org). Cross-org user provisioning is a follow-on:
+  the owner creates an org row, mints a user pinned to that org
+  via `POST /v1/users` once that handler grows an `org_id`
+  parameter; for v0.1 the owner can still operate cross-org via
+  per-org owner bearer tokens.
+- Claim flow: `POST /v1/claim` accepts an optional `org` slug.
+  If absent or equal to `default`, the owner is stamped into the
+  seeded org. If a fresh slug is supplied, a new org row is
+  inserted in the same transaction and the owner is stamped
+  into it. The response echoes the slug so the CLI can cache
+  it for display (`hackline whoami`, `hackline org inspect`);
+  the server still enforces isolation off the bearer token, not
+  off the cached slug.
+- CLI: `hackline login --org <slug>` carries the org into the
+  claim request. `hackline org create | list | inspect` covers
+  the new REST surface. Existing subcommands need no change —
+  the bearer token already names the org server-side.
+
+Out of scope here:
+
+- Per-org wildcard certs / DNS plumbing for branded
+  `device-N.<org>.cloud.example.com`. The keyexpr prefix and
+  the DB row land in Phase 4; the ACME and wildcard-cert work is
+  Phase 5 (§14 Q5).
+- ESP32 / constrained-device support beyond what the existing
+  `devices.class` column records.
 
 ### Phase 5 — Deployment polish
 
