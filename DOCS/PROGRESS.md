@@ -535,6 +535,112 @@ history and the agent's work is just one more PR-shaped artefact.
 Lower priority than R0–R3 because R0 makes the most common case
 work for free.
 
+### A-1 — `stop` actually stops the running thing (S-M, the integrity fix)
+
+> User claim: *"the stop button must halt whatever the agent is
+> doing right now."* Today it doesn't, because there are two
+> separate runner spawn paths and the stop control only addresses
+> one of them.
+
+The two paths:
+
+- **Job runner.** Spawned by `drive_job` for stages from
+  `template.yaml`. Controlled by `start_job` / `stop_job` /
+  `pause_job` / `resume_job`. The cap-watcher subscribes to the
+  bus and fires the runner's cancellation token on `JobStopped`
+  / `JobPaused` / `JobFailed` events (commit `ec1eb63`), so this
+  path's cancel is reachable.
+- **Chat runner (`agent_chat`).** Spawned every time the user
+  clicks `send ▶`. Lives in
+  [crates/codeless-runtime/src/rpc.rs:1150](../codeless/crates/codeless-runtime/src/rpc.rs#L1150).
+  The `CancellationToken` is created fresh inside the spawned
+  task and **never escapes the closure**. No external code can
+  fire it. There is no `cancel_chat_task` RPC.
+
+The observable symptom: on a `completed` job whose worktree
+still exists, the user clicks `send ▶`, the chat goes
+`thinking…`, and there is **no way to stop the agent**. The job
+status row says `COMPLETED` (so the action-row's stop button is
+hidden — correctly, since the job has nothing to stop), and the
+send button becomes `thinking…` with no escape.
+
+The fix is three runtime pieces + one UI change.
+
+**Runtime — three new pieces:**
+
+1. **Chat-cancel registry on the runtime.** `chat_cancels: Arc<Mutex<HashMap<TaskId, CancellationToken>>>`. The `agent_chat`
+   spawn inserts the token; a drop-guard removes it on
+   completion. Reachable from any RPC handler.
+2. **`cancel_chat_task(task_id)` RPC.** Looks up the token in
+   the registry and fires it. Idempotent — a missing entry
+   (task already finished) is `Ok(())`, not an error.
+3. **`stop_active(job_id)` umbrella RPC.** The single RPC the
+   UI calls when the user clicks the unified stop button. It
+   does both, whichever applies:
+   - If the job's status is `Running` / `AwaitingReview` / `Queued`,
+     call `stop_job` (writes `Stopped`, cap-watcher cancels the
+     job runner).
+   - If any in-flight chat task has this `job_id` in scope, fire
+     each of those tokens too.
+   - Returns a result naming which paths actually fired so the
+     UI can report "stopped the chat turn" vs "stopped the job"
+     vs both.
+
+**UI — one unified stop button:**
+
+The current action-row `stop ■` is keyed on `job.status === "running"`
+and the chat's `send ▶ / cancel` is keyed on the chat's local
+`busy` flag. Both become one **stop** button visible whenever
+*anything* is running for this job (job runner OR chat turn).
+Click → `stop_active`. The send button's transformation into
+stop-while-streaming stays, and now actually halts the agent.
+
+**Why "stop" as a single word:**
+
+The user's mental model is "I want this to stop." They do not
+care which runner spawn this is — they just want it to stop.
+The internal distinction between job stop, job pause, and chat
+cancel is real but should not leak into the button label. The
+word `cancel` is also intentionally avoided because it suggests
+queuing-cancellation, which is something else (`stop_job` on a
+queued job).
+
+**Execution plan (5 commits, step-per-commit, verify each):**
+
+1. Runtime: chat-cancel registry + `cancel_chat_task` RPC +
+   tests. The registry is an `Arc<Mutex<HashMap<TaskId,
+   CancellationToken>>>` mounted on the runtime; agent_chat
+   inserts on spawn and removes on completion via a drop-guard.
+2. Runtime: `stop_active` umbrella RPC + tests. Reads job
+   status, decides which combination of stop_job +
+   cancel_chat_task to call, returns a result describing what
+   fired.
+3. UI: action-row stop button calls `stop_active` instead of
+   `stop_job` so it works on chat-turns over a `completed` job.
+4. UI: send button becomes stop-while-streaming, also calls
+   `stop_active` with the in-flight chat task_id.
+5. UI: liveness indicator independent of `job.status` — driven
+   by job-running OR chat-busy, so the "something is running"
+   signal matches reality.
+
+**Why this lands ahead of A0 and the rest of the autonomy track:**
+
+Every other feature on this roadmap assumes the user has working
+control over the agent. "Pause / resume / stop" is the floor.
+If clicking stop doesn't stop, no amount of fancier autonomy
+work pays off — the user gives up on the tool. A-1 is the
+integrity fix that makes the rest of the autonomy track honest.
+
+**Out of scope for A-1:**
+
+- A "pause chat" semantic. Chat turns are one-shot and
+  conversational; you can't `--continue` a half-finished
+  question, you just ask again. Stop is enough.
+- Re-creating the chat-cancel token across server restarts.
+  In-flight chat turns die with the daemon; the registry is
+  in-memory.
+- Multi-tenant scoping. Single trust boundary per SCOPE.md R5.
+
 ### A0 — Intra-stage session continuation (M, the load-bearing fix)
 
 > Autonomy claim: *"pause / ask / resume / raise-the-cap inside a
@@ -907,28 +1013,36 @@ up when the autonomy track is between phases.
 
 ## TL;DR for the next session
 
-1. Read this doc, especially the **Next steps** section. The
-   ordering has changed twice:
-   - R-track ("does it fit a project I actually have?") now sits
-     above A-track, with **R0 (`workspace_mode`)** at the absolute
-     top. Without R0 the dogfooding loop is broken — agent edits
-     land in `/tmp` and the user can't test live in their own
-     repo, which is the single biggest "doesn't match a normal
-     dev workflow" complaint.
-   - Within A-track, autonomy (A1–A4) precedes the RUN page UX
-     overhaul (U1), because UX over a still-broken loop is
-     animation.
-2. The user's working tree is full of uncommitted cross-layer work
-   (Draft state + scaffolding + UI rebuild). Decide whether to
-   commit it as-is (one big "submit-flow overhaul" commit) or
-   split into the 10 numbered chunks above. Don't push yet without
-   explicit user OK — two pairs of revert commits in recent
-   history show the user wants control over what lands.
-3. **Start on R0 — `workspace_mode: in_repo | worktree`.** A day
-   or two of work, schema-additive, default `in_repo` flips the
-   dogfooding loop from "edit in `/tmp`, test by merging" to "edit
-   on a branch in the user's real repo, test the way the user
-   already tests."
+**Open work right now is A-1.** A1–A0–rest only matter if the
+basic "stop" control works. Today the stop button only addresses
+the *job* runner; chat turns (`agent_chat`) spawn a separate
+runner whose `CancellationToken` is unreachable, so on a
+`completed` job the user can send a chat message and there is
+no way to halt the agent. See A-1 in **Next steps** above for
+the full plan — registry of in-flight chat tokens, `stop_active`
+umbrella RPC, unified UI stop button. Five focused commits,
+step-per-commit verification.
+
+After A-1 lands the remaining order is unchanged:
+
+1. R-track ("does it fit a project I actually have?") with **R0
+   (`workspace_mode`)** at the top.
+2. Within A-track, autonomy (A1–A4) precedes the RUN page UX
+   overhaul (U1), because UX over a still-broken loop is
+   animation. A0 (intra-stage session continuation via
+   `--continue`) is already landed on the `feat/jobs-ux-composer`
+   branch alongside the pause/resume work; ready to merge once
+   the stacked branches are reviewed.
+3. The user's working tree may still contain uncommitted
+   cross-layer work (Draft state + scaffolding + UI rebuild).
+   Decide whether to commit it as-is or split into the 10
+   numbered chunks above. Don't push yet without explicit user
+   OK — two pairs of revert commits in recent history show the
+   user wants control over what lands.
+4. **Start on A-1.** Five commits, schema-additive, in-memory
+   registry only (no migration). Then re-pick from R0 onward.
+
+Earlier ordering (kept for context — supersede with the above):
 4. Then **A0 — intra-stage session continuation.** This is the
    "pause / ask / resume / raise-the-cap" fix that makes codeless
    feel like Claude Code instead of an alien tool. Without it,
