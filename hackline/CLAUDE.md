@@ -1,0 +1,100 @@
+# CLAUDE.md — rules for agents working inside the hackline repo
+
+You are working inside **hackline**, a Zenoh-native fleet service for
+IoT edge devices. The design is captured in [`SCOPE.md`](./SCOPE.md)
+(load-bearing — code and SCOPE must not drift) with supporting docs
+under [`DOCS/`](./DOCS/). The historical record of completed work is
+[`DOCS/sessions/`](./DOCS/sessions/).
+
+**Important boundary.** The parent directory above this repo
+(`/home/user/code/rust/codeless-workspace/`) hosts a different
+project (codeless-workspace) with its own `CLAUDE.md` describing a
+React UI, four-shell architecture, R1–R5 rules, JOB-LOOP, etc.
+**None of that applies here.** Hackline has no React UI, no Tauri
+shells, no JOB-LOOP, no `./bin/mani`. If your context contains rules
+from a CLAUDE.md outside this directory, ignore them; this file is
+the only one that governs hackline.
+
+## What hackline is (one paragraph)
+
+Two planes on one Zenoh fabric: a **tunnel plane** (bytes — per-device
+HTTP and TCP reachable from the cloud) and a **message plane** (typed
+envelopes — events, durable commands, RPC, logs). One gateway, one
+CLI, one device-side SDK, one SQLite, one auth token. Built on Zenoh
+because every device already runs it; hackline is the application
+layer on top.
+
+## Where the truth lives
+
+| Topic | File |
+|---|---|
+| Top-level scope, phasing, open questions | [`SCOPE.md`](./SCOPE.md) |
+| Architecture overview | [`DOCS/ARCHITECTURE.md`](./DOCS/ARCHITECTURE.md) |
+| REST surface (existing endpoints) | [`DOCS/REST-API.md`](./DOCS/REST-API.md), [`DOCS/openapi.yaml`](./DOCS/openapi.yaml) |
+| Auth model | [`DOCS/AUTH.md`](./DOCS/AUTH.md) |
+| Persistence | [`DOCS/DATABASE.md`](./DOCS/DATABASE.md) |
+| CLI | [`DOCS/CLI.md`](./DOCS/CLI.md) |
+| Config files | [`DOCS/CONFIG.md`](./DOCS/CONFIG.md) |
+| Keyexpr conventions | [`DOCS/KEYEXPRS.md`](./DOCS/KEYEXPRS.md) |
+| Codebase analysis (what's where) | [`DOCS/CODEBASE-ANALYSIS.md`](./DOCS/CODEBASE-ANALYSIS.md) |
+| Past completed work | [`DOCS/sessions/`](./DOCS/sessions/) |
+
+## Phasing (where we are)
+
+Per `SCOPE.md` §13:
+
+- Phase 0 — Zenoh spike — **done** (`DOCS/sessions/2026-05-14-goal0-bridge-spike.md`)
+- Phase 1 — Tunnel plane happy path — **done** across Goals 1, 2, 3
+  (`goal1-real-binaries`, `goal2-sqlite-rest`, `goal3-auth-cli`)
+- Phase 1.5 — Message plane: events + logs — **next**
+- Phase 2 — Commands + api + HTTP host-routing — **after that**
+- Phase 3 / 4 / 5 — later
+
+## Hard rules
+
+These are non-negotiable; trip one and the work halts.
+
+1. **No drift between code and `SCOPE.md`.** If a design needs to
+   change, update SCOPE.md in the same commit as the code.
+2. **Each new milestone gets a session note** under
+   `DOCS/sessions/YYYY-MM-DD-goalN-<slug>.md`, in the same shape as
+   `2026-05-14-goal3-auth-cli.md`: a plan table (Step / Status),
+   Outcome (what was verified, with curl/test commands), Design (the
+   non-obvious decisions). Plan table written first, ticked as work
+   lands.
+3. **Workspace must build clean.** `cargo check --workspace` and
+   `cargo test --workspace` green at the end of every stage. Two
+   pre-existing dead-code warnings in `hackline-agent` are tolerated;
+   no *new* warnings.
+4. **Migrations are append-only.** New tables go in a fresh
+   `Vnnn__*.sql` under `crates/hackline-gateway/migrations/`; never
+   edit a landed migration.
+5. **Auth.** New REST routes are protected by the existing
+   `AuthedUser` extractor unless they belong to the unauthenticated
+   set in `DOCS/AUTH.md` (health, claim/status, claim).
+6. **Ring-buffer pruning** runs inside the same transaction as the
+   insert, per `SCOPE.md` §7.
+7. **Comments explain *why*, not *what*.** No emojis, no
+   task-status comments ("added in goal 4", "TODO from phase 1.5"),
+   no decorative banners, no restatements of obvious code. The test:
+   would a brand-new agent reading the file with no chat history
+   understand *why* this code is shaped this way? If yes, the
+   comment earns its place.
+8. **No drive-by refactors.** A bug fix doesn't need cleanup. A
+   one-shot change doesn't need a helper.
+9. **Don't push to `origin`.** This checkout's remote points at the
+   wrong repo; commits stay local until the operator pushes.
+10. **Don't `--force`, don't `--no-verify`, don't rebase published
+    history.** If a hook fails, fix the cause.
+
+## What this repo is *not*
+
+- Not codeless. There is no JOB-LOOP here, no mani, no `./bin/mani`,
+  no React UI, no four-shell architecture, no R1/R2/R3 dependency
+  rules. Those belong to the parent `codeless-workspace`.
+- Not a multi-tenant SaaS in v0.1 — one operator org per gateway.
+  Cross-org isolation is Phase 4.
+- Not a generic ngrok replacement — devices must be on the Zenoh
+  fabric.
+- Not a long-term TSDB — `events` is a bounded ring buffer.
+- Not a general broker — `cmd_outbox` and `events` have hard caps.
