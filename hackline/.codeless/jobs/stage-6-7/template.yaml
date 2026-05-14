@@ -1,6 +1,16 @@
 name: stage-6-7
-goal: "TODO: describe what success looks like for this job."
+goal: "Land Goal 6 (Phase 3 - audit completeness + admin UI) and Goal 7 (Phase 4 - multi-tenant orgs) per hackline SCOPE.md Section 13, each as one stage. Reuse the docs in DOCS/ and the session-note pattern from DOCS/sessions/2026-05-14-goal5-cmd-api-host-routing.md instead of restating the design here."
+
 docs:
+  - SCOPE.md
+  - WORKFLOW.md
   - CHAT.md
 stages:
-  - "TODO: rename me to the first stage's title"
+  - title: "goal 6 - audit completeness + admin UI (SCOPE.md Phase 3). tunnel.session audit rows with byte counts per bridged connection, cmd.send / cmd.cancel / api.call audit entries, /metrics Prometheus endpoint per SCOPE.md §10.2, static React admin bundle served from the gateway talking to existing REST + SSE with live tunnels, cmd outbox and live events views. End with DOCS/sessions/2026-05-14-goal6-audit-admin-ui.md filled in to the same shape as goal5-cmd-api-host-routing.md, and cargo check + cargo test clean."
+    docs:
+      - SCOPE.md
+      - WORKFLOW.md
+  - title: "goal 7 - multi-tenant orgs (SCOPE.md Phase 4). orgs table, org_id FKs on users and devices, per-org Zenoh keyexpr prefix and ACL, cross-org isolation enforced at every REST handler and on the message-plane fan-in subscribers, owner-bootstrap claim flow grows an org row, hackline org CLI surface for create/list/inspect. End with DOCS/sessions/2026-05-14-goal7-multi-tenant-orgs.md and cargo check + cargo test clean."
+    docs:
+      - SCOPE.md
+      - WORKFLOW.md
