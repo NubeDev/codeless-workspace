@@ -38,11 +38,12 @@ async fn main() -> anyhow::Result<()> {
 
     {
         let conn = db.get()?;
+        let scheme = if cfg.tls.is_some() { "https" } else { "http" };
         match claim::ensure_pending(&conn)? {
             Some(token) => {
                 info!("gateway unclaimed — claim token printed below");
                 println!("\n  CLAIM TOKEN: {token}\n");
-                println!("  Use: hackline login --server http://{listen_addr} --token {token}\n",
+                println!("  Use: hackline login --server {scheme}://{listen_addr} --token {token}\n",
                     listen_addr = cfg.listen.as_deref().unwrap_or("127.0.0.1:8080"));
             }
             None => {
@@ -83,8 +84,26 @@ async fn main() -> anyhow::Result<()> {
 
     let listen_addr = cfg.listen.as_deref().unwrap_or("127.0.0.1:8080");
     let app = api::router::build(state);
-    let listener = tokio::net::TcpListener::bind(listen_addr).await?;
-    info!(addr = listen_addr, "REST API listening");
+
+    // Resolve TLS state (if configured). The feature gate ensures the
+    // tls module is only compiled when the `tls` feature is active;
+    // at runtime an absent `[tls]` block means plain TCP.
+    #[cfg(feature = "tls")]
+    let tls_state = match &cfg.tls {
+        Some(tls_cfg) => Some(hackline_gateway::tls::init(tls_cfg).await?),
+        None => None,
+    };
+    #[cfg(not(feature = "tls"))]
+    let tls_state: Option<()> = {
+        if cfg.tls.is_some() {
+            anyhow::bail!(
+                "[tls] block in config but gateway compiled without `tls` feature"
+            );
+        }
+        None
+    };
+
+    info!(addr = listen_addr, tls = tls_state.is_some(), "REST API listening");
 
     // Run axum and tunnel manager concurrently. The fan-in subscriber
     // tasks own their own loops and don't need to be in the select —
@@ -106,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     tokio::select! {
-        result = axum::serve(listener, app) => {
+        result = serve_rest(listen_addr, app, &tls_state) => {
             result?;
         }
         result = manager::run(db, session, metrics, tunnel_rx) => {
@@ -117,6 +136,40 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Serve the REST API — plain TCP or TLS depending on config.
+#[cfg(feature = "tls")]
+async fn serve_rest(
+    addr: &str,
+    app: axum::Router,
+    tls: &Option<hackline_gateway::tls::TlsState>,
+) -> anyhow::Result<()> {
+    match tls {
+        Some(tls_state) => {
+            let addr: std::net::SocketAddr = addr.parse()?;
+            axum_server::bind_rustls(addr, tls_state.axum_config.clone())
+                .serve(app.into_make_service())
+                .await?;
+            Ok(())
+        }
+        None => {
+            let listener = tokio::net::TcpListener::bind(addr).await?;
+            axum::serve(listener, app).await?;
+            Ok(())
+        }
+    }
+}
+
+#[cfg(not(feature = "tls"))]
+async fn serve_rest(
+    addr: &str,
+    app: axum::Router,
+    _tls: &Option<()>,
+) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
     Ok(())
 }
 

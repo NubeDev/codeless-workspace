@@ -11,5 +11,7 @@ pub mod events_bus;
 pub mod metrics;
 pub mod msg_fanin;
 pub mod state;
+#[cfg(feature = "tls")]
+pub mod tls;
 pub mod tunnel;
 pub mod zenoh_client;
