@@ -106,14 +106,28 @@ async fn main() -> anyhow::Result<()> {
     info!(addr = listen_addr, tls = tls_state.is_some(), "REST API listening");
 
     // The same TLS material that terminates the REST listener also
-    // wraps tunnel TCP sockets. Cloning out the acceptor here keeps
-    // the `tls_state` value available for `serve_rest` below while the
-    // tunnel manager owns its own clone.
+    // wraps tunnel TCP sockets. Cloning out the acceptor swap here
+    // keeps the `tls_state` value available for `serve_rest` below
+    // while the tunnel manager owns its own clone of the swap.
     #[cfg(feature = "tls")]
     let tunnel_tls: hackline_gateway::tunnel::tcp_listener::TunnelTls =
         tls_state.as_ref().map(|s| s.acceptor.clone());
     #[cfg(not(feature = "tls"))]
     let tunnel_tls: hackline_gateway::tunnel::tcp_listener::TunnelTls = None;
+
+    // ACME renewer: a background task that re-acquires the cached
+    // cert before it expires and hot-swaps it into both the REST
+    // RustlsConfig and the tunnel acceptor. `None` for non-ACME modes;
+    // the corresponding select arm collapses to `pending()`.
+    #[cfg(feature = "tls")]
+    let renewal_task = match (tls_state.as_ref(), cfg.tls.as_ref()) {
+        (Some(state), Some(tls_cfg)) => {
+            hackline_gateway::tls::spawn_renewal(state.clone(), tls_cfg.clone())
+        }
+        _ => None,
+    };
+    #[cfg(not(feature = "tls"))]
+    let renewal_task: Option<()> = None;
 
     // Run axum and tunnel manager concurrently. The fan-in subscriber
     // tasks own their own loops and don't need to be in the select —
@@ -144,9 +158,34 @@ async fn main() -> anyhow::Result<()> {
         result = http_router_fut => {
             result?;
         }
+        result = renewal_arm(renewal_task) => {
+            // The renewer loops forever; if the join future resolves
+            // it's either a panic (JoinError) or the loop returned
+            // an unrecoverable error. Either way: surface and exit.
+            result?;
+        }
     }
 
     Ok(())
+}
+
+#[cfg(feature = "tls")]
+async fn renewal_arm(
+    handle: Option<tokio::task::JoinHandle<Result<(), hackline_gateway::error::GatewayError>>>,
+) -> anyhow::Result<()> {
+    match handle {
+        Some(h) => {
+            let res = h.await?;
+            res?;
+            Ok(())
+        }
+        None => std::future::pending().await,
+    }
+}
+
+#[cfg(not(feature = "tls"))]
+async fn renewal_arm(_: Option<()>) -> anyhow::Result<()> {
+    std::future::pending().await
 }
 
 /// Serve the REST API — plain TCP or TLS depending on config.

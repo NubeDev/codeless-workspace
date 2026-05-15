@@ -97,6 +97,16 @@ pub struct TlsConfig {
     /// `$STATE_DIR/acme/`.
     #[serde(default)]
     pub acme_cache_dir: Option<String>,
+    /// Renewal threshold: re-acquire when the cached cert is within
+    /// this many days of expiry. Default 30, matching the Let's
+    /// Encrypt baseline (90-day cert, renew at ≅30 days remaining).
+    #[serde(default = "default_renew_before_days")]
+    pub acme_renew_before_days: u32,
+    /// How often the renewer wakes to re-check expiry. Default 12 h.
+    /// The renewer is cheap when nothing needs doing (one PEM parse),
+    /// so the interval can stay generous.
+    #[serde(default = "default_renew_check_secs")]
+    pub acme_check_interval_secs: u64,
 
     /// Path to PEM-encoded certificate chain. Triggers manual mode.
     #[serde(default)]
@@ -156,6 +166,8 @@ pub enum TlsMode {
 fn default_mode() -> String { "client".into() }
 fn default_log_level() -> String { "info".into() }
 fn default_log_format() -> String { "pretty".into() }
+fn default_renew_before_days() -> u32 { 30 }
+fn default_renew_check_secs() -> u64 { 12 * 60 * 60 }
 
 impl GatewayConfig {
     pub fn load(path: &Path) -> Result<Self, GatewayError> {
@@ -202,6 +214,8 @@ mod tests {
             acme_email: None,
             acme_staging: false,
             acme_cache_dir: None,
+            acme_renew_before_days: default_renew_before_days(),
+            acme_check_interval_secs: default_renew_check_secs(),
             cert_path: None,
             key_path: None,
             self_signed: false,

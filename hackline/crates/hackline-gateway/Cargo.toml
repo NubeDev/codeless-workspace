@@ -12,7 +12,7 @@ workspace = true
 
 [features]
 default = []
-tls = ["dep:axum-server", "dep:tokio-rustls", "dep:rustls", "dep:rcgen", "dep:instant-acme", "dep:rustls-pemfile", "dep:dirs"]
+tls = ["dep:axum-server", "dep:tokio-rustls", "dep:rustls", "dep:rcgen", "dep:instant-acme", "dep:rustls-pemfile", "dep:dirs", "dep:arc-swap", "dep:x509-parser"]
 
 # Multiple binaries auto-discovered from src/bin/*.
 # - serve         : run the gateway
@@ -51,7 +51,10 @@ rcgen = { workspace = true, optional = true }
 instant-acme = { workspace = true, optional = true }
 rustls-pemfile = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
+arc-swap = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
 
 [dev-dependencies]
 hackline-client = { path = "../hackline-client" }
 anyhow = { workspace = true }
+time = "0.3"

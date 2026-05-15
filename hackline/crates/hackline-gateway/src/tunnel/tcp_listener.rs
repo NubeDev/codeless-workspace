@@ -23,8 +23,16 @@ use crate::metrics::{Metrics, Outcome};
 /// `accept`-handshaked through rustls before bytes are pumped — same
 /// cert chain as the REST API, since `tls::TlsState` builds both from
 /// the same PEM material.
+///
+/// The acceptor is wrapped in `Arc<ArcSwap<_>>` so that ACME
+/// renewal can swap in a fresh cert without restarting any listener:
+/// `bridge_socket` calls `load_full()` immediately before each
+/// handshake, so the very next accepted connection picks up the new
+/// cert. Already-handshaken sockets keep running on their previous
+/// session keys until they close, which is correct — TLS does not
+/// require renegotiation when the server cert rotates.
 #[cfg(feature = "tls")]
-pub type TunnelTls = Option<tokio_rustls::TlsAcceptor>;
+pub type TunnelTls = Option<std::sync::Arc<arc_swap::ArcSwap<tokio_rustls::TlsAcceptor>>>;
 #[cfg(not(feature = "tls"))]
 pub type TunnelTls = Option<std::convert::Infallible>;
 
@@ -169,7 +177,11 @@ async fn bridge_socket(
     tls: TunnelTls,
 ) -> Result<hackline_core::bridge::BridgeBytes, hackline_core::error::BridgeError> {
     match tls {
-        Some(acceptor) => {
+        Some(acceptor_swap) => {
+            // Load the current acceptor immediately before the
+            // handshake so a renewer that swapped a fresh cert in is
+            // honoured by the very next accepted connection.
+            let acceptor = acceptor_swap.load_full();
             let tls_stream = acceptor.accept(tcp).await.map_err(hackline_core::error::BridgeError::Io)?;
             hackline_core::bridge::initiate_bridge_io_with_id(
                 session, org_slug, zid, device_port, tls_stream, peer,
