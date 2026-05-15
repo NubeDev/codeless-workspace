@@ -32,6 +32,16 @@ export interface DeviceHealth {
   rtt_ms: number | null;
 }
 
+// Wire shape per `DOCS/openapi.yaml` DeviceHealthEntry. Same fields
+// as `DeviceHealth` plus the device id, which is required when the
+// rows arrive as a collection (the per-id endpoint keys by URL).
+export interface DeviceHealthEntry {
+  device_id: number;
+  online: boolean;
+  last_seen_at: number | null;
+  rtt_ms: number | null;
+}
+
 export interface AgentInfo {
   zid: string;
   version: string;

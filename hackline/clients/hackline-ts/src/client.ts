@@ -6,6 +6,7 @@ import type {
   CmdStatus,
   Device,
   DeviceHealth,
+  DeviceHealthEntry,
   GatewayEvent,
   MintedToken,
   Page,
@@ -36,6 +37,11 @@ export interface ApiClient {
   deleteDevice(id: number): Promise<void>;
   getDeviceInfo(id: number): Promise<AgentInfo>;
   getDeviceHealth(id: number): Promise<DeviceHealth>;
+  // Collection-level health: one call returns one entry per device
+  // in the caller's org. Server fans out the per-device probe in
+  // parallel; the wire envelope (`{ items }`) is unwrapped here so
+  // callers see an array, matching `listDevices` ergonomics.
+  getDevicesHealth(): Promise<DeviceHealthEntry[]>;
 
   // Tunnels
   listTunnels(): Promise<Tunnel[]>;

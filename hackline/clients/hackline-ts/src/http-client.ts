@@ -7,6 +7,7 @@ import type {
   CmdStatus,
   Device,
   DeviceHealth,
+  DeviceHealthEntry,
   GatewayEvent,
   MintedToken,
   Page,
@@ -87,6 +88,16 @@ export class HttpApiClient implements ApiClient {
     this.req<AgentInfo>("GET", `/v1/devices/${id}/info`);
   getDeviceHealth = (id: number) =>
     this.req<DeviceHealth>("GET", `/v1/devices/${id}/health`);
+  // Collection-level health. The wire is `{ items: [...] }` (an
+  // envelope reserved for future pagination); we unwrap to keep
+  // the client surface array-shaped like `listDevices`.
+  getDevicesHealth = async (): Promise<DeviceHealthEntry[]> => {
+    const res = await this.req<{ items: DeviceHealthEntry[] }>(
+      "GET",
+      "/v1/devices/health",
+    );
+    return res.items;
+  };
 
   // ---- tunnels ----
   listTunnels = () => this.req<Tunnel[]>("GET", "/v1/tunnels");

@@ -51,6 +51,34 @@ describe("devices", () => {
     });
   });
 
+  // Goal 28/29: collection-level health endpoint returns one entry
+  // per device in the org. Two devices proves "this is a list,
+  // not a short-circuit"; filtering by `device_id` keeps the test
+  // stable when other tests in the same vitest run leave devices
+  // around.
+  it("getDevicesHealth returns one entry per device with the offline shape", async () => {
+    const c = freshClient();
+    const a = await c.createDevice({ zid: uniqueZid(), label: "list-health-a" });
+    created.push(a.id);
+    const b = await c.createDevice({ zid: uniqueZid(), label: "list-health-b" });
+    created.push(b.id);
+
+    const all = await c.getDevicesHealth();
+    const byId = new Map(all.map((e) => [e.device_id, e]));
+    expect(byId.get(a.id)).toEqual({
+      device_id: a.id,
+      online: false,
+      last_seen_at: null,
+      rtt_ms: null,
+    });
+    expect(byId.get(b.id)).toEqual({
+      device_id: b.id,
+      online: false,
+      last_seen_at: null,
+      rtt_ms: null,
+    });
+  });
+
   // Lock-in for goal 17: the canonical wire field is `last_seen_at`
   // (number | null, unix epoch seconds) per `DOCS/openapi.yaml`. The
   // prior TS type called it `last_seen_ts: string | null`, which lied
