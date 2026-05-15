@@ -11,15 +11,15 @@ Goal:        a user can chat at `/assistant` (or from the footer
 
 ## Stages
 
-1. [x] [S] Survey F2/F3/F1; map code anchors; record cwd answer + open questions. ← current
-2. [ ] [M] F2 — replace `NOOP_ASSISTANT_REPLY` with an `agent_chat`-driven planner that emits `AssistantActionCard` cards. Streams via the existing event bus tagged with the per-turn session id.
-3. [ ] [M] F2 — feed thread history + tool-result transcript into the prompt; persist the assistant turn (+ any cards) on completion so the `/assistant` view replays it via `list_assistant_messages`.
-4. [ ] [S] F3 — add `jobs.draftFromConversation(thread_id)` and `jobs.updateScope(job_id, new_markdown)` to `codeless-rpc::RpcServer`; wire to existing `submit_job` / `write_job_file` paths and enforce the paused-job rule on `updateScope`.
-5. [ ] [S] F3 — route confirmed `draft_job` and `edit_scope` cards through the two new methods (replacing the inline `submit_job`/`write_job_file` calls in `dispatch_action`).
-6. [ ] [S] F3 — `MockRunner` dispatch tests + reject-on-running-job test + round-trip test that a confirmed `start` card calls `start_job` exactly once.
+1. [x] [S] Survey F2/F3/F1; map code anchors; record cwd answer + open questions.
+2. [x] [M] F2 — replace `NOOP_ASSISTANT_REPLY` with an `agent_chat`-driven planner that emits `AssistantActionCard` cards. Streams via the existing event bus tagged with the per-turn session id.
+3. [x] [M] F2 — feed thread history + tool-result transcript into the prompt; persist the assistant turn (+ any cards) on completion so the `/assistant` view replays it via `list_assistant_messages`.
+4. [x] [S] F3 — add `jobs.draftFromConversation(thread_id)` and `jobs.updateScope(job_id, new_markdown)` to `codeless-rpc::RpcServer`; wire to existing `submit_job` / `write_job_file` paths and enforce the paused-job rule on `updateScope`.
+5. [x] [S] F3 — route confirmed `draft_job` and `edit_scope` cards through the two new methods (replacing the inline `submit_job`/`write_job_file` calls in `dispatch_action`).
+6. [x] [S] F3 — `MockRunner` dispatch tests + reject-on-running-job test + round-trip test that a confirmed `start` card calls `start_job` exactly once.
 7. [x] [M] F1 — drive `AiInputBar` from the current assistant thread (last-used or pinned); messages sent from the footer appear in `/assistant`'s transcript on next render.
 8. [x] [S] F1 — collapse `useChatStore` message ownership: either retire it or shrink to UI presentation state (scroll, composer draft) so SQLite stays the only source of truth.
-9. [ ] [S] Tighten: run `cargo test --workspace`, clippy, fmt; `tsc --noEmit` + vitest in `ui/codeless-ui`; regenerate wire types if any RPC arg shape changed.
+9. [x] [S] Tighten: run `cargo test --workspace`, clippy, fmt; `tsc --noEmit` + vitest in `ui/codeless-ui`; regenerate wire types if any RPC arg shape changed.
 
 ## Stage 1 — survey notes
 
@@ -191,7 +191,50 @@ Out of scope for stage 8 (intentional, follow-up):
   (the mini-window has its own SDK transport, todo strip,
   approval bridge — none of which is in the assistant runner yet).
 
-## How to continue
+## Stage 9 — tighten
 
-A fresh session picks up stage 9 (tighten — cargo test, clippy, fmt,
-tsc, vitest, regenerate wire types if needed). Stages 2-8 are done.
+Stage 9 ran the full verification sweep and updated
+`DOCS/ASSISTANT-SCOPE.md` to mark F2, F3, F1 completed. Findings:
+
+- `cargo fmt --check`: clean.
+- `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+- `cargo test --workspace --no-fail-fast`: 3 pre-existing failures,
+  none introduced by F2/F3/F1. Verified by re-running the affected
+  tests after checking each target file back to `183635a^` (F2
+  baseline); failures reproduce identically there.
+  1. `codeless-runtime::rpc_in_process::job_filtered_subscription_drops_unrelated_events`
+  2. `codeless-runtime::since_replay::since_zero_replays_everything_then_attaches_live_tail`
+     — both panic with `Conflict("repo … is already in use by job …
+     in in_repo mode; stop it or submit as worktree")`, caused by
+     the R0 `workspace_mode in_repo | worktree` validation
+     (`8d6d733`) which the two tests never adopted. Fix is a test
+     update (set `workspace_mode = Some(WorkspaceMode::Worktree)`
+     on the second `submit_job`); out of scope for this job.
+  3. `codeless-types::specta_snapshot::wire_types_match_snapshot`
+     — ordering drift + the `workspace-unhealthy` /
+     `workspace-recovered` event arms added by the
+     `7cb9508` master merge, never snapshot-refreshed. Fix is one
+     `SPECTA_UPDATE=1` rerun; out of scope here.
+- R1: `git diff 183635a^..50cdc4a` shows no `process::Command` or
+  `tokio::process` introduced in this job's commits anywhere.
+  Pre-existing uses outside `codeless-adapters-host` are tests, the
+  CLI, the server bootstrap, and `codeless-tools/src/browser`
+  (host-only sidecar) — all host-only crates by design; the rule
+  forbids reaching this code from a mobile-safe crate, not the
+  existence of the import.
+- R2: no `@tauri-apps` imports added outside `src/shells/desktop/`
+  in this job's commits. Pre-existing matches outside
+  `src/shells/desktop/` are: the two `RpcClient` plumbing files
+  (`lib/rpc/tauri-ipc-client.ts`, `lib/rpc/client.ts`), three
+  shell-capability adapters under `lib/shell/` (`autostart.ts`,
+  `external-opener.ts`, `kv-store.ts`), the settings-window entry
+  (`settings/main.tsx`), and two terminal modules
+  (`modules/terminal/lib/pty-bridge.ts`,
+  `modules/terminal/lib/useTerminalSession.ts`). The latter two
+  are an existing R2 follow-up tracked in
+  `DOCS/UI-PORT-AUDIT.md` (PTY RPC not landed); none are this
+  job's concern.
+- R3: zero `*.web.tsx` / `*.mobile.tsx` / `*.ios.tsx` /
+  `*.android.tsx` (or `.ts` variants) under `ui/codeless-ui/src/`.
+
+The /loop is complete; nothing left to schedule.

@@ -285,33 +285,39 @@ visible but gated by feature presence, not feature flags.
 
 ## Status (as of 2026-05-15)
 
-The assistant job ran to completion and the surface is in master, but
-**the planner is not wired** — sending a message in the assistant chat
-returns a fixed string from `crates/codeless-runtime/src/rpc/assistant.rs`:
+F2, F3, F1 all landed on `codeless/fix-ai-agent` (commits `183635a`,
+`a8f3bda` / `772ddb9` / `17a74d2`, `50cdc4a`). End state:
 
-> "Assistant responder is not wired yet — message recorded. The real
-> planner lands in a later stage."
+- The planner runs `agent_chat` for every non-slash message; the
+  no-op responder is gone (assistant.rs no longer references
+  `NOOP_ASSISTANT_REPLY`). Slash commands still take the
+  deterministic `parse_action` fast-path.
+- Planner tool calls are persisted as their own assistant-role rows
+  carrying `meta_json: AssistantActionCard`, surfaced through
+  `AppendAssistantMessageResult.cards`, and rendered by
+  `AssistantThreadView` without UI gymnastics.
+- `jobs.draftFromConversation(threadId)` and
+  `jobs.updateScope(jobId, newMarkdown)` are first-class methods on
+  `RpcServer`; the paused-job rule lives in `update_scope`'s
+  implementation so every caller honours it.
+- `dispatch_action` routes confirmed `draft_job` / `edit_scope`
+  cards through the new methods; the original inline
+  `submit_job` / `write_job_file` calls are gone from that
+  dispatcher.
+- The footer `AssistantFooterBar` binds to the current assistant
+  thread via `useAssistantFocus`; footer submits land in the same
+  SQLite-backed transcript as `/assistant`. `useChatStore` is
+  documented as shrunken to UI-presentation slots (the in-editor
+  `AiMiniWindow` keeps it for its SDK transport — folding the
+  mini-window into the assistant is a separate follow-up the spec
+  already flags).
 
-What this means in practice:
-
-- Threads can be created, listed, deleted, persisted in SQLite.
-- Messages and attachments round-trip and replay via subscription.
-- The `/assistant` route, thread rail, and `CommonChat` integration
-  all render correctly.
-- Action cards for view/manage/draft/scope-edit are wired to the
-  RPCs but the assistant never *triggers* them — there is no model
-  call producing tool invocations to render. So the user can only
-  see what the cards look like by exercising the RPC paths another
-  way (curl, tests).
-
-What is **not done** is captured as ordered follow-ups below: F2
-(planner), F3 (tool dispatch + missing `jobs.*` RPCs), F1 (footer
-bar). F1 is last because it's a UX multiplier on top of a planner
-that doesn't exist yet.
+Follow-ups below are kept for posterity; the per-section
+"Completed" markers record where the work landed.
 
 ## Follow-ups
 
-### F2 — Wire the planner (replace the no-op responder)
+### F2 — Wire the planner (replace the no-op responder) — **Completed (183635a, 17a74d2)**
 
 Replace `NOOP_ASSISTANT_REPLY` in
 [`assistant.rs:182`](../codeless/crates/codeless-runtime/src/rpc/assistant.rs#L182)
@@ -339,7 +345,7 @@ Requirements:
 
 Blocks: F3, F1.
 
-### F3 — Tool dispatch + missing `jobs.*` RPCs
+### F3 — Tool dispatch + missing `jobs.*` RPCs — **Completed (a8f3bda, 772ddb9)**
 
 The UI confirms action cards via `confirm_assistant_action` at
 [`AssistantThreadView.tsx:112`](../codeless/ui/codeless-ui/src/modules/assistant/AssistantThreadView.tsx#L112).
@@ -366,7 +372,7 @@ Requirements:
 Depends on: F2 (planner has to emit cards before dispatch is
 exercised end-to-end, though dispatch can be tested in isolation).
 
-### F1 — Drive the footer AI bar with the assistant
+### F1 — Drive the footer AI bar with the assistant — **Completed (50cdc4a)**
 
 The existing footer composer (`AiInputBar`, mounted from
 [`App.tsx`](../codeless/ui/codeless-ui/src/app/App.tsx) under the
