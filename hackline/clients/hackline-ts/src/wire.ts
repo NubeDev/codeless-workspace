@@ -3,14 +3,32 @@
 // `hackline-proto` crate. Regenerate after changing any wire type,
 // and commit the result.
 //
-// Scope mirrors `tests/specta_snapshot.rs`: connection-lifecycle and
-// event types. Envelope types carrying `serde_json::Value` payloads
-// land in a follow-up that ships the `Value -> unknown` shim.
+// Scope mirrors `tests/specta_snapshot.rs`: every wire type. The
+// envelope `payload` fields are typed as `unknown` here — the wire
+// is still arbitrary JSON, the TS contract simply doesn't pretend
+// to know its shape (see the field comment in `src/msg.rs`).
 
 // Describes a running agent instance.
 export type AgentInfo = {
 	label: string | null,
 	allowed_ports: number[],
+};
+
+// Reply published by the device-side `serve_api` handler.
+export type ApiReply = {
+	content_type: string,
+	payload: unknown,
+};
+
+/**
+ *  Request carried by a Zenoh `get` against
+ *  `hackline/<zid>/msg/api/<topic>`. Synchronous round-trip — the
+ *  gateway holds the HTTP connection open until the reply arrives
+ *  or the timeout fires.
+ */
+export type ApiRequest = {
+	content_type: string,
+	payload: unknown,
 };
 
 /**
@@ -22,6 +40,20 @@ export type CmdAck = {
 	cmd_id: string,
 	result: CmdResult,
 	detail?: string | null,
+};
+
+/**
+ *  Durable command envelope flowing gateway→device on
+ *  `hackline/<zid>/msg/cmd/<topic>`. `cmd_id` is the idempotency key
+ *  on the device side (SCOPE.md §8.1); the device dedupes on it
+ *  across redeliveries.
+ */
+export type CmdEnvelope = {
+	cmd_id: string,
+	topic: string,
+	enqueued_at: number,
+	expires_at: number,
+	envelope: MsgEnvelope,
 };
 
 // Outcome reported by the device-side cmd handler.
@@ -52,6 +84,19 @@ export type Event = { type: "device_online"; device_id: number } | { type: "devi
 
 // Five-level log severity. Lowercase string on the wire and in DB.
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error";
+
+/**
+ *  Common envelope for events and logs. The `payload` is opaque to
+ *  the gateway — stored as a JSON value blob in SQLite.
+ */
+export type MsgEnvelope = {
+	id: string,
+	// Unix milliseconds since epoch.
+	ts: number,
+	content_type: string,
+	headers?: { [key in string]: string },
+	payload: unknown,
+};
 
 // A validated Zenoh device identifier.
 export type Zid = string;

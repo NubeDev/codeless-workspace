@@ -18,6 +18,7 @@ pub const CONTENT_TYPE_JSON: &str = "application/json";
 /// Common envelope for events and logs. The `payload` is opaque to
 /// the gateway — stored as a JSON value blob in SQLite.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct MsgEnvelope {
     pub id: Uuid,
     /// Unix milliseconds since epoch.
@@ -26,6 +27,13 @@ pub struct MsgEnvelope {
     pub content_type: String,
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
+    // `serde_json::Value` has no `Type` impl in our specta feature
+    // set (we deliberately omit specta's `serde_json` feature
+    // because its recursive `Vec<Value>` shape stack-overflows the
+    // TS exporter). The override renders this field as TS
+    // `unknown` — the wire is still arbitrary JSON, the contract
+    // simply doesn't pretend to know its shape.
+    #[cfg_attr(feature = "specta", specta(type = specta_typescript::Unknown))]
     pub payload: serde_json::Value,
 }
 
@@ -114,6 +122,7 @@ impl MsgEnvelope {
 /// on the device side (SCOPE.md §8.1); the device dedupes on it
 /// across redeliveries.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct CmdEnvelope {
     pub cmd_id: Uuid,
     pub topic: String,
@@ -171,17 +180,21 @@ impl CmdResult {
 /// gateway holds the HTTP connection open until the reply arrives
 /// or the timeout fires.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct ApiRequest {
     #[serde(default = "default_content_type")]
     pub content_type: String,
+    #[cfg_attr(feature = "specta", specta(type = specta_typescript::Unknown))]
     pub payload: serde_json::Value,
 }
 
 /// Reply published by the device-side `serve_api` handler.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct ApiReply {
     #[serde(default = "default_content_type")]
     pub content_type: String,
+    #[cfg_attr(feature = "specta", specta(type = specta_typescript::Unknown))]
     pub payload: serde_json::Value,
 }
 

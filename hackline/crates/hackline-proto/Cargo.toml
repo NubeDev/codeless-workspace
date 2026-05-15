@@ -15,8 +15,12 @@ default = []
 # Codegen-only: derives `specta::Type` on every wire type so the
 # `tests/specta_snapshot.rs` test and `examples/wire_ts.rs` binary can
 # emit TypeScript. Default builds (mobile/agent/gateway) skip the
-# extra dep entirely.
-specta = ["dep:specta"]
+# extra dep entirely. `specta-typescript` is pulled in alongside
+# `specta` because the envelope types use `#[specta(type =
+# specta_typescript::Unknown)]` to render their `serde_json::Value`
+# payloads as TS `unknown` — the override needs the type path
+# resolvable at derive time.
+specta = ["dep:specta", "dep:specta-typescript"]
 
 [dependencies]
 serde = { workspace = true }
@@ -24,6 +28,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 specta = { workspace = true, optional = true }
+specta-typescript = { workspace = true, optional = true }
 
 [dev-dependencies]
 specta = { workspace = true }

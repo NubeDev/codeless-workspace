@@ -20,7 +20,7 @@ use hackline_proto::{
     agent_info::AgentInfo,
     connect::{ConnectAck, ConnectRequest},
     event::Event,
-    msg::{CmdAck, CmdResult, LogLevel},
+    msg::{ApiReply, ApiRequest, CmdAck, CmdEnvelope, CmdResult, LogLevel, MsgEnvelope},
     zid::Zid,
 };
 use specta::TypeCollection;
@@ -32,9 +32,10 @@ const HEADER: &str =
 // `hackline-proto` crate. Regenerate after changing any wire type,\n\
 // and commit the result.\n\
 //\n\
-// Scope mirrors `tests/specta_snapshot.rs`: connection-lifecycle and\n\
-// event types. Envelope types carrying `serde_json::Value` payloads\n\
-// land in a follow-up that ships the `Value -> unknown` shim.\n\n";
+// Scope mirrors `tests/specta_snapshot.rs`: every wire type. The\n\
+// envelope `payload` fields are typed as `unknown` here — the wire\n\
+// is still arbitrary JSON, the TS contract simply doesn't pretend\n\
+// to know its shape (see the field comment in `src/msg.rs`).\n\n";
 
 fn collect() -> TypeCollection {
     let mut types = TypeCollection::default();
@@ -46,7 +47,11 @@ fn collect() -> TypeCollection {
         .register_mut::<Event>()
         .register_mut::<LogLevel>()
         .register_mut::<CmdAck>()
-        .register_mut::<CmdResult>();
+        .register_mut::<CmdResult>()
+        .register_mut::<MsgEnvelope>()
+        .register_mut::<CmdEnvelope>()
+        .register_mut::<ApiRequest>()
+        .register_mut::<ApiReply>();
     types
 }
 

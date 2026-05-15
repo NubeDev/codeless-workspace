@@ -6,14 +6,14 @@
 //! `SPECTA_UPDATE=1 cargo test -p hackline-proto --features specta \
 //!   --test specta_snapshot`.
 //!
-//! Scope: every wire type whose fields are statically typed. Envelope
-//! types that carry a `serde_json::Value` payload (`MsgEnvelope`,
-//! `CmdEnvelope`, `ApiRequest`, `ApiReply`) are intentionally out of
-//! scope here — specta's recursive `Value` definition stack-overflows
-//! the TS exporter, and a clean fix needs a `Value -> unknown` shim
-//! that's tracked as its own goal alongside the npm client wiring.
-//! The snapshot still covers the full connection-lifecycle and SSE
-//! event surfaces, which is what the npm client's first slice needs.
+//! Scope: every wire type. The four envelope types
+//! (`MsgEnvelope`, `CmdEnvelope`, `ApiRequest`, `ApiReply`) carry
+//! `serde_json::Value` payloads which are mapped to TS `unknown`
+//! via `#[specta(type = specta_typescript::Unknown)]` — see the
+//! field-level comment in `src/msg.rs`. Without that override
+//! specta's recursive `Value` definition stack-overflows the TS
+//! exporter (we omit the `serde_json` feature on specta for the
+//! same reason).
 
 use std::path::PathBuf;
 
@@ -21,7 +21,7 @@ use hackline_proto::{
     agent_info::AgentInfo,
     connect::{ConnectAck, ConnectRequest},
     event::Event,
-    msg::{CmdAck, CmdResult, LogLevel},
+    msg::{ApiReply, ApiRequest, CmdAck, CmdEnvelope, CmdResult, LogLevel, MsgEnvelope},
     zid::Zid,
 };
 use specta::TypeCollection;
@@ -37,7 +37,11 @@ fn collect() -> TypeCollection {
         .register_mut::<Event>()
         .register_mut::<LogLevel>()
         .register_mut::<CmdAck>()
-        .register_mut::<CmdResult>();
+        .register_mut::<CmdResult>()
+        .register_mut::<MsgEnvelope>()
+        .register_mut::<CmdEnvelope>()
+        .register_mut::<ApiRequest>()
+        .register_mut::<ApiReply>();
     types
 }
 
