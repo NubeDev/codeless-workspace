@@ -209,6 +209,28 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /v1/devices/health:
+    get:
+      tags: [Devices]
+      summary: Collection-level health for every device in the caller's org.
+      description: |
+        Single call that fans the per-device health probe out across
+        every device visible to the caller. The same in-process
+        cache backs both this endpoint and `GET /v1/devices/{id}/health`,
+        so a steady poll loop pays the per-device probe cost only
+        once per cache TTL window. A failed probe yields
+        `rtt_ms: null` for that entry; it never fails the request
+        or cancels other entries.
+      responses:
+        "200":
+          description: One entry per device in the caller's org.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceHealthList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /v1/devices/{id}/health:
     parameters:
       - $ref: "#/components/parameters/DeviceId"
@@ -612,6 +634,37 @@ components:
         rtt_ms:
           type: [integer, "null"]
           description: Null when `online` is false.
+
+    DeviceHealthEntry:
+      type: object
+      required: [device_id, online, last_seen_at, rtt_ms]
+      properties:
+        device_id:
+          type: integer
+          format: int64
+        online:
+          type: boolean
+        last_seen_at:
+          type: [integer, "null"]
+          format: int64
+        rtt_ms:
+          type: [integer, "null"]
+          description: Null when the probe timed out, errored, or returned no replies.
+
+    DeviceHealthList:
+      type: object
+      required: [items]
+      description: |
+        Wrapped in `{ items }` to match the page-envelope shape used
+        by other collection endpoints, even though this one is not
+        paginated. Each entry carries `device_id` so callers can
+        join against `GET /v1/devices` without parsing it from a
+        stringly-typed object key.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceHealthEntry"
 
     TunnelKind:
       type: string

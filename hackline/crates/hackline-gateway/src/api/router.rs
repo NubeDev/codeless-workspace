@@ -15,6 +15,10 @@ pub fn build(state: AppState) -> Router {
         // Authenticated
         .route("/v1/devices", get(super::devices::list::handler))
         .route("/v1/devices", post(super::devices::create::handler))
+        // Static segment registered before `/{id}` so axum's matchit
+        // picks the literal route even on router versions where
+        // capture-vs-literal precedence might change.
+        .route("/v1/devices/health", get(super::devices::list_health::handler))
         .route("/v1/devices/{id}", get(super::devices::get::handler))
         .route("/v1/devices/{id}", delete(super::devices::delete::handler))
         .route("/v1/devices/{id}/health", get(super::devices::health::handler))
