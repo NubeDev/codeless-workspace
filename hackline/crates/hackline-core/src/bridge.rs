@@ -8,7 +8,7 @@ use std::time::Duration;
 use hackline_proto::connect::{ConnectAck, ConnectRequest};
 use hackline_proto::keyexpr;
 use hackline_proto::Zid;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -115,6 +115,26 @@ pub async fn initiate_bridge_with_id(
     tcp: TcpStream,
     peer_addr: Option<String>,
 ) -> Result<(Uuid, BridgeBytes), BridgeError> {
+    initiate_bridge_io_with_id(session, org, zid, port, tcp, peer_addr).await
+}
+
+/// Generic variant for callers that have already wrapped the accepted
+/// socket in another protocol layer (the gateway uses this for
+/// TLS-terminated tunnel listeners, where the wrapped value is a
+/// `tokio_rustls::server::TlsStream<TcpStream>`). Keeping the TCP
+/// signature intact above means the device-side `accept_bridge` and
+/// every existing call site stay unchanged.
+pub async fn initiate_bridge_io_with_id<S>(
+    session: &Session,
+    org: &str,
+    zid: &Zid,
+    port: u16,
+    io: S,
+    peer_addr: Option<String>,
+) -> Result<(Uuid, BridgeBytes), BridgeError>
+where
+    S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
     let request_id = Uuid::new_v4();
     let req = ConnectRequest {
         request_id,
@@ -155,22 +175,34 @@ pub async fn initiate_bridge_with_id(
     let ke_to_agent = keyexpr::stream_gw(org, zid, &request_id);
     let ke_from_agent = keyexpr::stream_dev(org, zid, &request_id);
 
-    let bytes = run_bridge(session, tcp, &ke_from_agent, &ke_to_agent).await?;
+    let bytes = run_bridge(session, io, &ke_from_agent, &ke_to_agent).await?;
     Ok((request_id, bytes))
 }
 
-/// Pump bytes between a TCP socket and a Zenoh pub/sub pair until
-/// either side closes.
-async fn run_bridge(
+/// Pump bytes between an arbitrary `AsyncRead + AsyncWrite` and a
+/// Zenoh pub/sub pair until either side closes. Generic so the
+/// gateway can pass a raw `TcpStream` for plain tunnels and a
+/// `tokio_rustls::server::TlsStream<TcpStream>` for TLS-terminated
+/// ones without duplicating the pump.
+async fn run_bridge<S>(
     session: &Session,
-    tcp: TcpStream,
+    io: S,
     subscribe_ke: &str,
     publish_ke: &str,
-) -> Result<BridgeBytes, BridgeError> {
+) -> Result<BridgeBytes, BridgeError>
+where
+    S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
-    let (mut tcp_read, mut tcp_write) = tcp.into_split();
+    // `tokio::io::split` works on any `AsyncRead + AsyncWrite`, unlike
+    // `TcpStream::into_split` which is `TcpStream`-specific. The split
+    // halves carry an internal lock; for IO that's only ever touched
+    // from one direction at a time per half (which is the case here:
+    // the read half stays in the tcp→zenoh task, the write half stays
+    // in the zenoh→tcp task) the locking is uncontended.
+    let (mut read_half, mut write_half) = tokio::io::split(io);
     let up = Arc::new(AtomicU64::new(0));
     let down = Arc::new(AtomicU64::new(0));
 
@@ -191,7 +223,7 @@ async fn run_bridge(
     let tcp_to_zenoh = tokio::spawn(async move {
         let mut buf = vec![0u8; READ_BUF];
         loop {
-            match tcp_read.read(&mut buf).await {
+            match read_half.read(&mut buf).await {
                 Ok(0) => {
                     debug!(ke = %pub_ke, "tcp read EOF, publishing close sentinel");
                     let _ = publisher.put(ZBytes::from(Vec::<u8>::new())).await;
@@ -226,7 +258,7 @@ async fn run_bridge(
                         break;
                     }
                     down_in.fetch_add(bytes.len() as u64, Ordering::Relaxed);
-                    if tcp_write.write_all(&bytes).await.is_err() {
+                    if write_half.write_all(&bytes).await.is_err() {
                         break;
                     }
                 }

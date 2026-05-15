@@ -399,3 +399,27 @@ the tunnel plane. (Documented in SCOPE §3.5 and §5.1.)
 **Overturn this if:** a future Zenoh release adds true bidi-stream
 queries with the same reliability and ordering properties as the
 side-channel pattern. Then we may consolidate.
+
+---
+
+## tls-termination — 2026-05
+
+**Chosen:** **axum-server 0.8 + tokio-rustls + instant-acme 0.8**
+behind a `tls` Cargo feature flag. Three modes via `[tls]` config
+block: self-signed (rcgen), manual PEM certs, ACME HTTP-01.
+`RustlsConfig` shared between REST listener and tunnel TCP acceptor;
+supports hot-reload for ACME cert renewal.
+
+**Rejected:**
+
+- **rustls-acme** — higher-level but couples TLS acceptor creation
+  tightly to its own server loop; doesn't compose with axum-server's
+  `bind_rustls` or with wrapping raw `TcpStream`s for tunnel sockets.
+- **Always require Caddy/nginx in front** — adds a deployment
+  dependency and breaks the "single binary" goal for Phase 5.
+- **openssl** — extra C dependency, harder cross-compilation.
+
+**Overturn this if:** rustls-acme gains an API that produces a
+standalone `ServerConfig` we can share with tunnel listeners, or if
+the tunnel TCP TLS wrapping proves too complex with the current
+approach.

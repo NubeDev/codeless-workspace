@@ -21,6 +21,11 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
         "V004__audit_session_columns",
         include_str!("../../migrations/V004__audit_session_columns.sql"),
     ),
+    (
+        5,
+        "V005__orgs",
+        include_str!("../../migrations/V005__orgs.sql"),
+    ),
 ];
 
 pub fn run(conn: &Connection) -> Result<(), crate::error::GatewayError> {

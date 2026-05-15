@@ -10,6 +10,10 @@ description = "Cloud-side hackline gateway: REST + SSE + TCP listeners + SQLite"
 [lints]
 workspace = true
 
+[features]
+default = []
+tls = ["dep:axum-server", "dep:tokio-rustls", "dep:rustls", "dep:rcgen", "dep:instant-acme", "dep:rustls-pemfile", "dep:dirs"]
+
 # Multiple binaries auto-discovered from src/bin/*.
 # - serve         : run the gateway
 # - reset-claim   : wipe users + reissue claim
@@ -40,6 +44,13 @@ subtle = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
 base64 = { workspace = true }
+axum-server = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rcgen = { workspace = true, optional = true }
+instant-acme = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+dirs = { workspace = true, optional = true }
 
 [dev-dependencies]
 hackline-client = { path = "../hackline-client" }

@@ -43,12 +43,16 @@ layer on top.
 
 Per `SCOPE.md` §13:
 
-- Phase 0 — Zenoh spike — **done** (`DOCS/sessions/2026-05-14-goal0-bridge-spike.md`)
-- Phase 1 — Tunnel plane happy path — **done** across Goals 1, 2, 3
-  (`goal1-real-binaries`, `goal2-sqlite-rest`, `goal3-auth-cli`)
-- Phase 1.5 — Message plane: events + logs — **next**
-- Phase 2 — Commands + api + HTTP host-routing — **after that**
-- Phase 3 / 4 / 5 — later
+- Phase 0 — Zenoh spike — **done** (`goal0-bridge-spike`)
+- Phase 1 — Tunnel plane happy path — **done** (`goal1-real-binaries`, `goal2-sqlite-rest`, `goal3-auth-cli`)
+- Phase 1.5 — Message plane: events + logs — **done** (`goal4-message-plane`)
+- Phase 2 — Commands + api + HTTP host-routing — **done** (`goal5-cmd-api-host-routing`)
+- Phase 3 — Audit completeness + admin UI — **done** (`goal6-audit-admin-ui`)
+- Phase 4 — Multi-tenant orgs — **done** (`goal7-multi-tenant-orgs`)
+- Phase 5 — Deployment polish (ACME/TLS) — **done** (`goal8-acme-tls`, `goal9-tunnel-tls`); ACME renewal + Postgres + TS codegen remaining
+
+All session docs in `DOCS/sessions/`. Next work: ACME cert renewal,
+Postgres backend, or Zenoh-WS browser client.
 
 ## Hard rules
 
@@ -92,8 +96,8 @@ These are non-negotiable; trip one and the work halts.
 - Not codeless. There is no JOB-LOOP here, no mani, no `./bin/mani`,
   no React UI, no four-shell architecture, no R1/R2/R3 dependency
   rules. Those belong to the parent `codeless-workspace`.
-- Not a multi-tenant SaaS in v0.1 — one operator org per gateway.
-  Cross-org isolation is Phase 4.
+- Not a multi-tenant SaaS in v0.1 — multi-org isolation landed in
+  Phase 4 (Goal 7), but the trust model is still single-operator.
 - Not a generic ngrok replacement — devices must be on the Zenoh
   fabric.
 - Not a long-term TSDB — `events` is a bounded ring buffer.
