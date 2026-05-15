@@ -71,7 +71,7 @@ export class HttpApiClient implements ApiClient {
   }
 
   // ---- health / claim ----
-  health = () => this.req<{ ok: true }>("GET", "/v1/health");
+  health = () => this.req<{ status: "ok" }>("GET", "/v1/health");
   claimStatus = () => this.req<ClaimStatus>("GET", "/v1/claim/status");
   claim = (input: { token: string; owner: string }) =>
     this.req<{ token: string; owner: string }>("POST", "/v1/claim", input);
@@ -114,12 +114,12 @@ export class HttpApiClient implements ApiClient {
   listCmd = (input: {
     device_id: number;
     status?: CmdStatus;
-    cursor?: string | null;
+    cursor?: number | null;
     limit?: number;
   }) => {
     const qs = new URLSearchParams();
     if (input.status) qs.set("status", input.status);
-    if (input.cursor) qs.set("cursor", input.cursor);
+    if (input.cursor != null) qs.set("cursor", String(input.cursor));
     if (input.limit) qs.set("limit", String(input.limit));
     const q = qs.toString();
     return this.req<Page<CmdOutboxRow>>(
@@ -131,9 +131,9 @@ export class HttpApiClient implements ApiClient {
     this.req<void>("DELETE", `/v1/cmd/${encodeURIComponent(cmd_id)}`);
 
   // ---- audit ----
-  listAudit = (input?: { cursor?: string | null; limit?: number }) => {
+  listAudit = (input?: { cursor?: number | null; limit?: number }) => {
     const qs = new URLSearchParams();
-    if (input?.cursor) qs.set("cursor", input.cursor);
+    if (input?.cursor != null) qs.set("cursor", String(input.cursor));
     if (input?.limit) qs.set("limit", String(input.limit));
     const q = qs.toString();
     return this.req<Page<AuditEntry>>("GET", `/v1/audit${q ? `?${q}` : ""}`);

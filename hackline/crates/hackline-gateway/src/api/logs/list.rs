@@ -27,7 +27,7 @@ fn default_limit() -> i64 {
 
 #[derive(Debug, Serialize)]
 pub struct LogsPage {
-    pub entries: Vec<LogRow>,
+    pub items: Vec<LogRow>,
     pub next_cursor: Option<i64>,
 }
 
@@ -39,7 +39,7 @@ pub async fn handler(
     let conn = state.db.get()?;
     let limit = q.limit;
     let org_id = caller.org_id;
-    let entries = tokio::task::spawn_blocking(move || {
+    let items = tokio::task::spawn_blocking(move || {
         logs::list(
             &conn,
             org_id,
@@ -54,13 +54,13 @@ pub async fn handler(
     .await
     .unwrap()?;
 
-    let next_cursor = if entries.len() as i64 >= limit {
-        entries.last().map(|r| r.id)
+    let next_cursor = if items.len() as i64 >= limit {
+        items.last().map(|r| r.id)
     } else {
         None
     };
     Ok(Json(LogsPage {
-        entries,
+        items,
         next_cursor,
     }))
 }

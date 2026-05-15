@@ -12,7 +12,7 @@ Related:
 - [`SCOPE.md`](./SCOPE.md) — overall architecture, helper-role rules
 - [`JOB-UI.md`](./JOB-UI.md) — stage chat / job chat split
 - [`JOB-MODEL.md`](./JOB-MODEL.md) — handover contract
-- [`SESSION-PEER-REVIEW-IMPOVEMNTS.md`](./SESSION-PEER-REVIEW-IMPOVEMNTS.md) — reviewer-as-separate-session, ties into per-stage persona override
+- [`SESSION-PEER-REVIEW-IMPROVEMENTS.md`](./SESSION-PEER-REVIEW-IMPROVEMENTS.md) — reviewer-as-separate-session, ties into per-stage persona override
 - [`agents.ts`](../codeless/ui/codeless-ui/src/modules/ai/lib/agents.ts) — current persona record + KV persistence
 - [`registry.ts`](../codeless/ui/codeless-ui/src/modules/ai/agents/registry.ts) — current subagent registry
 - [`AgentsSection.tsx`](../codeless/ui/codeless-ui/src/settings/sections/AgentsSection.tsx) — the Settings → Agents UI
@@ -40,8 +40,8 @@ without duplicating prompts.
 
 ## What the Settings → Agents page does today
 
-The screenshot at [`/jobs/.../?tab=chat`](#) (Agents tab) is **layer 1
-only** — chat-panel personas. The active persona is read by
+The Settings → Agents page is **layer 1 only** — chat-panel personas.
+The active persona is read by
 [`AiInputBar.tsx`](../codeless/ui/codeless-ui/src/modules/ai/components/AiInputBar.tsx);
 its `instructions` field becomes the system prompt for the next
 chat-side LLM call. Custom instructions on the page are a global
@@ -62,8 +62,9 @@ type Persona = {
   instructions: string;          // system-prompt prefix
   default_model?: string;        // seeds runner / chat model
   allowed_subagents: string[];   // whitelist; empty = no spawning
-  default_snippets?: string[];   // snippet ids to auto-include
-  use_for_jobs: boolean;         // appears in job-submit dropdown
+  default_snippets?: string[];   // snippet ids to auto-include (chat-only for MVP)
+  use_for_jobs: boolean;         // appears in job-submit dropdown; also governs MCP exposure
+  built_in: boolean;             // seeded on first boot; UI renders read-only badge
 };
 ```
 
@@ -93,6 +94,12 @@ reproduces it; an MCP client can ask "what persona ran this job?"
 
 ### 3. Per-stage override (new, ties into peer-review)
 
+This doc owns the **binding mechanism** (how a stage names a persona,
+how the runtime resolves it). Which persona the *review* stage uses by
+default is owned by
+[`SESSION-PEER-REVIEW-IMPROVEMENTS.md`](./SESSION-PEER-REVIEW-IMPROVEMENTS.md) —
+the two docs should not both redefine the default.
+
 Each stage may declare its own persona. The natural mapping:
 
 - Plan stages → Architect
@@ -100,10 +107,10 @@ Each stage may declare its own persona. The natural mapping:
 - Review gates → Code Reviewer / Security
 
 The stage's `handover.md` records which persona ran (see
-[`SESSION-PEER-REVIEW-IMPOVEMNTS.md` H1](./SESSION-PEER-REVIEW-IMPOVEMNTS.md#h1-per-stage-handover-not-just-per-job)
+[`SESSION-PEER-REVIEW-IMPROVEMENTS.md` H1](./SESSION-PEER-REVIEW-IMPROVEMENTS.md#h1-per-stage-handover-not-just-per-job)
 for per-stage handovers; persona-per-stage is the natural companion).
 This is also how the peer-review proposal's
-[P1 "Reviewer is a separate session"](./SESSION-PEER-REVIEW-IMPOVEMNTS.md#p1-reviewer-is-a-separate-session-not-the-same-model-thread)
+[P1 "Reviewer is a separate session"](./SESSION-PEER-REVIEW-IMPROVEMENTS.md#p1-reviewer-is-a-separate-session-not-the-same-model-thread)
 gets a concrete reviewer identity: the review stage runs under the
 Code Reviewer persona, with read-only subagents only.
 
@@ -119,9 +126,14 @@ Code Reviewer persona, with read-only subagents only.
    stage ran under.
 
 2. **Subagents stay read-only.** The current registry whitelist
-   (`READ_ONLY_TOOLS = ["read_file", "list_directory", "grep", "glob"]`)
-   is load-bearing. A persona declaring `allowed_subagents` cannot
-   bypass that whitelist; the registry enforces it at spawn time.
+   (`READ_ONLY_TOOLS = ["read_file", "list_directory", "grep", "glob"]`
+   in [`registry.ts`](../codeless/ui/codeless-ui/src/modules/ai/agents/registry.ts))
+   is load-bearing. Enforcement is two-layered:
+   [`runSubagent.ts`](../codeless/ui/codeless-ui/src/modules/ai/agents/runSubagent.ts)
+   checks `persona.allowed_subagents` before resolving the subagent id;
+   the registry then hands back only its `READ_ONLY_TOOLS` set. A
+   persona cannot widen the tool set — only narrow which subagents are
+   spawnable.
 
 3. **Personas do not drive coding.** A persona is *advisory context
    for a runner*, not a replacement for one. Coding still goes through
@@ -151,6 +163,7 @@ CREATE TABLE personas (
   instructions    TEXT NOT NULL,
   default_model   TEXT,
   allowed_subagents TEXT NOT NULL DEFAULT '[]',  -- json array
+  default_snippets  TEXT NOT NULL DEFAULT '[]',  -- json array; chat-only for MVP
   use_for_jobs    INTEGER NOT NULL DEFAULT 0,
   built_in        INTEGER NOT NULL DEFAULT 0,
   created_at      INTEGER NOT NULL,
@@ -195,12 +208,19 @@ already correct.
    inherit from the persona? Lean toward inherit-only to keep the
    surface tight.
 3. **MCP exposure.** Personas as MCP prompts (per
-   [`SCOPE.md` "Prompts"](./SCOPE.md#prompts)) is the obvious move,
-   but only personas with `use_for_jobs = 1` should be exposed —
-   chat-only personas (e.g. a personal "explain to me like I'm five"
-   persona) are noise to an MCP client.
-4. **Reviewer-persona / peer-review tie-in.** The review stage in
-   [`SESSION-PEER-REVIEW-IMPOVEMNTS.md` P1](./SESSION-PEER-REVIEW-IMPOVEMNTS.md#p1-reviewer-is-a-separate-session-not-the-same-model-thread)
+   [`SCOPE.md` "Prompts"](./SCOPE.md#prompts)) is the obvious move.
+   `use_for_jobs` is the **single** dimension that gates MCP visibility —
+   do not add a separate `expose_via_mcp` flag. Chat-only personas
+   (e.g. a personal "explain to me like I'm five" persona) are noise
+   to an MCP client and stay hidden by the same boolean that keeps
+   them out of the job-submit dropdown.
+4. **Snippet resolution at job time.** Chat uses `#handle` as an
+   inline expansion the user types. For jobs there is no typist —
+   `default_snippets` would have to be inlined into the system prompt
+   at job-start. MVP: keep snippets chat-only; revisit if a real job
+   need appears.
+5. **Reviewer-persona / peer-review tie-in.** The review stage in
+   [`SESSION-PEER-REVIEW-IMPROVEMENTS.md` P1](./SESSION-PEER-REVIEW-IMPROVEMENTS.md#p1-reviewer-is-a-separate-session-not-the-same-model-thread)
    wants a separate session under a reviewer model. Is the reviewer
    persona always `builtin:reviewer`, or configurable per-job? Probably
    configurable, with `builtin:reviewer` as the default.

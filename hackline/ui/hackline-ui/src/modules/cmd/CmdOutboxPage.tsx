@@ -31,7 +31,7 @@ export function CmdOutboxPage() {
         device_id: deviceId,
         status: status === "" ? undefined : status,
       });
-      setRows(page.entries);
+      setRows(page.items);
       setError(null);
     } catch (e) {
       setError(e);

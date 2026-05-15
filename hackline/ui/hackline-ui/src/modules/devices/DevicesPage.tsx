@@ -123,7 +123,7 @@ export function DevicesPage() {
                     <td className="px-3 py-2 font-mono text-xs">{shortId(d.zid, 14)}</td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">{d.class}</td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">
-                      {relTime(d.last_seen_ts)}
+                      {relTime(d.last_seen_at)}
                     </td>
                   </tr>
                 ))}

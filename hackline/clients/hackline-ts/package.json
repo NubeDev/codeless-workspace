@@ -30,9 +30,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "typescript": "~5.8.3"
+    "@types/node": "^22.10.0",
+    "typescript": "~5.8.3",
+    "vitest": "^2.1.9"
   }
 }

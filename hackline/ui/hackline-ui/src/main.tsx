@@ -9,6 +9,8 @@ import {
   HttpApiClient,
   readBaseUrl,
   readToken,
+  writeBaseUrl,
+  writeToken,
   type ApiClient,
 } from "./lib/api";
 import { ClaimScreen } from "./modules/claim/ClaimScreen";
@@ -66,6 +68,26 @@ function Root() {
         return;
       }
       const c = buildHttp();
+      // Validate the stored token before letting the App tree mount.
+      // A stale/revoked token would otherwise render the full UI and
+      // make every page show "HTTP 401" with no obvious recovery —
+      // the token gate is what surfaces NoToken (which lets the
+      // operator paste a fresh one).
+      if (c.hasToken()) {
+        try {
+          await c.listDevices();
+        } catch (e) {
+          const status = (e as { status?: number } | null)?.status;
+          if (status === 401 || status === 403) {
+            writeToken(null);
+            if (!cancelled) {
+              setClient(buildHttp());
+              setMode({ kind: "no-token" });
+            }
+            return;
+          }
+        }
+      }
       setClient(c);
       setMode(c.hasToken() ? { kind: "ready" } : { kind: "no-token" });
     })();
@@ -118,21 +140,54 @@ function ServerDown({ baseUrl, onRetry }: { baseUrl: string; onRetry: () => void
 }
 
 function NoToken() {
+  // Inline form rather than a link to `#/settings`: the App tree (and
+  // therefore SettingsPage) is gated behind a configured token, so a
+  // hash-route nav would just re-render this same screen and trap the
+  // user. Give them the inputs they need right here.
+  const [base, setBase] = useState(() => readBaseUrl());
+  const [tok, setTok] = useState("");
+  const save = () => {
+    writeBaseUrl(base.trim() || null);
+    writeToken(tok.trim() || null);
+    window.location.reload();
+  };
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
-      <div className="max-w-md space-y-3">
-        <h1 className="text-base font-semibold">No bearer token configured</h1>
-        <p className="text-xs text-muted-foreground">
-          Open Settings (or visit <code>#/settings</code>) and paste your
-          bearer token. Mint one with <code>hackline users tokens</code>.
-        </p>
-        <a
-          href="#/settings"
-          onClick={() => setTimeout(() => window.location.reload(), 50)}
-          className="inline-block rounded-md border px-3 py-1 text-xs hover:bg-accent"
+      <div className="w-full max-w-md space-y-4">
+        <div className="space-y-1">
+          <h1 className="text-base font-semibold">No bearer token configured</h1>
+          <p className="text-xs text-muted-foreground">
+            Paste a bearer token to unlock the UI. Mint one with{" "}
+            <code>hackline users tokens</code>, or use the owner token printed
+            by <code>POST /v1/claim</code>.
+          </p>
+        </div>
+        <label className="block space-y-1">
+          <span className="text-xs text-muted-foreground">Base URL</span>
+          <input
+            value={base}
+            onChange={(e) => setBase(e.target.value)}
+            placeholder="leave blank to use this origin (vite proxy)"
+            className="w-full rounded-md border bg-background px-2 py-1 text-xs"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-xs text-muted-foreground">Bearer token</span>
+          <input
+            value={tok}
+            onChange={(e) => setTok(e.target.value)}
+            placeholder="hk_…"
+            autoFocus
+            className="w-full rounded-md border bg-background px-2 py-1 font-mono text-xs"
+          />
+        </label>
+        <button
+          onClick={save}
+          disabled={!tok.trim()}
+          className="rounded-md border px-3 py-1 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
-          open settings
-        </a>
+          Save and reload
+        </button>
       </div>
     </div>
   );

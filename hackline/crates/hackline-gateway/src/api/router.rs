@@ -17,6 +17,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/devices", post(super::devices::create::handler))
         .route("/v1/devices/{id}", get(super::devices::get::handler))
         .route("/v1/devices/{id}", delete(super::devices::delete::handler))
+        .route("/v1/devices/{id}/health", get(super::devices::health::handler))
         .route("/v1/tunnels", get(super::tunnels::list::handler))
         .route("/v1/tunnels", post(super::tunnels::create::handler))
         .route("/v1/tunnels/{id}", delete(super::tunnels::delete::handler))

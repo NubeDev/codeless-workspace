@@ -51,3 +51,6 @@ Thumbs.db
 # Logs
 *.log
 audit.log*
+hackline/.hackline-dev/gateway.pid
+.gitignore
+hackline/.hackline-dev/ui.pid

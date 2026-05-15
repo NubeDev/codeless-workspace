@@ -147,20 +147,23 @@ runner mutates state.
 
 ### View / manage
 
-| Capability | RPC method                                  | Confirmation |
-|------------|---------------------------------------------|--------------|
-| List jobs  | `jobs.list({ filter })`                     | none (read) |
-| Inspect    | `jobs.get(jobId)`                           | none (read) |
-| Start      | `jobs.start(jobId)`                         | confirm: job id + entry stage |
-| Stop       | `jobs.stop(jobId, { reason })`              | confirm: reason text |
-| Pause      | `jobs.pause(jobId)`                         | confirm: job id + current stage |
-| Resume     | `jobs.resume(jobId)`                        | confirm: job id + resume point |
-| Restart    | `jobs.restart(jobId, { fromStage? })`       | confirm: stages that will be discarded |
-| Update     | `jobs.update(jobId, { fields })`            | confirm: per-field diff of changed fields |
+| Capability | RPC method                                  | Confirmation | Status |
+|------------|---------------------------------------------|--------------|--------|
+| List jobs  | `list_jobs({ filter })`                     | none (read)  | exists |
+| Inspect    | `get_job(jobId)`                            | none (read)  | exists |
+| Start      | `start_job(jobId)`                          | confirm: job id + entry stage              | exists |
+| Stop       | `stop_job(jobId, { reason })`               | confirm: reason text                       | exists |
+| Pause      | `pause_job(jobId)`                          | confirm: job id + current stage            | exists |
+| Resume     | `resume_job(jobId)`                         | confirm: job id + resume point             | exists |
+| Restart    | `rerun_job(jobId, { fromStage? })`          | confirm: stages that will be discarded     | exists |
+| Update     | `update_job(jobId, { fields })`             | confirm: per-field diff of changed fields  | exists |
+| Draft      | `jobs.draftFromConversation(threadId)`      | confirm: full `JobSpec` diff               | **new (F3)** |
+| Edit scope | `jobs.updateScope(jobId, newMarkdown)`      | confirm: unified diff against current scope | **new (F3)** |
 
-All methods already exist or are planned in
-[`DOCS/JOB-MODEL.md`](./JOB-MODEL.md); the assistant does not invent
-its own job model.
+Existing methods live in
+[`crates/codeless-rpc/src/server.rs`](../codeless/crates/codeless-rpc/src/server.rs);
+the assistant does not invent its own job model. The two **new**
+rows are scoped into F3 (tool dispatch) below.
 
 ### Create
 
@@ -207,23 +210,16 @@ around line 182), and outgoing messages carry the attachment refs
 inline. There is no `attachments` table to reuse.
 
 Assistant threads are workspace-scoped, not job-scoped, so they
-have no worktree to write into. Two options, pick one before
-milestone 1:
+have no worktree to write into.
 
-1. **Add a workspace-scoped attachments dir** (e.g.
-   `<codeless-data>/threads/<thread_id>/attachments/`) and keep
-   the filesystem-backed model. Job chat keeps writing to the
-   worktree; assistant chat writes to the workspace dir. The
-   `RpcClient.uploadAttachment(threadId, file)` shape is the same;
-   the runner picks the directory from the thread's kind.
-2. **Promote attachments to a SQLite table** (`id`, `thread_id`,
-   `mime`, `bytes`, `sha256`, `created_at`, `display_name`,
-   `disk_path`) and migrate job chat to it. Larger blast radius,
-   but means one path forever.
-
-Bias: option 1. It's strictly additive and doesn't touch the
-existing job-chat code. Resolve in the design review before
-milestone 1 lands.
+**Decided: workspace-scoped attachments dir** at
+`<codeless-data>/threads/<thread_id>/attachments/`. Job chat keeps
+writing to the worktree; assistant chat writes to the workspace
+dir. `RpcClient.uploadAttachment(threadId, file)` has one shape;
+the runner picks the directory from the thread's kind. Strictly
+additive — no migration of job-chat attachments, no new SQLite
+attachments table. If we later want one path forever, that's a
+separate decision; today we have two.
 
 ## RPC additions
 
@@ -266,27 +262,143 @@ assistant uses the same channels as job chat. This is what makes
   confirmation step if the user explicitly says "just do it"? Bias:
   no — confirmation is cheap and prevents irreversible spend on the
   wrong scope.
-- Where do assistant threads live in the job tree? Probably
-  workspace-scoped, not per-job, with optional job pinning. This
-  decision drives the attachments directory choice in §Data model
-  and the shape of `assistant_threads.context`.
-- Image rendering parity: job chat currently renders images inline
-  in messages. Confirm the same path works for assistant threads
-  before treating it as "free" via extraction.
+- Image rendering parity: job chat renders images inline in
+  messages; confirm the same path works for assistant threads
+  before treating it as "free" via the `CommonChat` extraction.
 
 ## Milestones
 
-1. Resolve the attachments-directory question (§Data model) and the
-   `AiChat` server-state migration (§Surfaces 3). Both are
-   prerequisites for the extraction.
-2. Extract `CommonChat` from `JobChat` (in `RunPane.tsx`) and
-   `AiChat`; rewire all three call sites (`RunPane`, `JobChatPage`,
-   AI panel); visual + behavioural parity verified.
-3. Add `assistant.*` RPCs + tables; assistant page lists / creates
-   threads and chats with a no-op responder.
-4. Wire view/manage tools (list/inspect/start/stop/pause/resume/restart/update).
-5. Wire draft-from-conversation + create-job confirmation flow.
-6. Wire scope edit (inline diff + open-in-editor).
+Completed in master as of 2026-05-15:
 
-Each milestone ships behind the same UI route; partial completion is
+- [x] M1 — Attachments-directory decided (workspace-scoped dir, §Data
+  model); `AiChat` server-state migration landed (§Surfaces 3).
+- [x] M2 — `CommonChat` extracted; `RunPane`, `JobChatPage`, AI panel
+  rewired; visual + behavioural parity verified.
+- [x] M3 — `assistant.*` RPCs + tables shipped; `/assistant` page
+  lists / creates threads; no-op responder at
+  [`assistant.rs:182`](../codeless/crates/codeless-runtime/src/rpc/assistant.rs#L182).
+
+Remaining work lives in §Follow-ups, ordered by dependency:
+**F2 (planner) → F3 (tool dispatch + new `jobs.*` RPCs) → F1 (footer
+bar)**. Each ships behind the same UI route; partial completion is
 visible but gated by feature presence, not feature flags.
+
+## Status (as of 2026-05-15)
+
+The assistant job ran to completion and the surface is in master, but
+**the planner is not wired** — sending a message in the assistant chat
+returns a fixed string from `crates/codeless-runtime/src/rpc/assistant.rs`:
+
+> "Assistant responder is not wired yet — message recorded. The real
+> planner lands in a later stage."
+
+What this means in practice:
+
+- Threads can be created, listed, deleted, persisted in SQLite.
+- Messages and attachments round-trip and replay via subscription.
+- The `/assistant` route, thread rail, and `CommonChat` integration
+  all render correctly.
+- Action cards for view/manage/draft/scope-edit are wired to the
+  RPCs but the assistant never *triggers* them — there is no model
+  call producing tool invocations to render. So the user can only
+  see what the cards look like by exercising the RPC paths another
+  way (curl, tests).
+
+What is **not done** is captured as ordered follow-ups below: F2
+(planner), F3 (tool dispatch + missing `jobs.*` RPCs), F1 (footer
+bar). F1 is last because it's a UX multiplier on top of a planner
+that doesn't exist yet.
+
+## Follow-ups
+
+### F2 — Wire the planner (replace the no-op responder)
+
+Replace `NOOP_ASSISTANT_REPLY` in
+[`assistant.rs:182`](../codeless/crates/codeless-runtime/src/rpc/assistant.rs#L182)
+with a real model loop. **Reuse the existing AI-panel transport**
+([`cliRunnerTransport.ts`](../codeless/ui/codeless-ui/src/modules/ai/lib/cliRunnerTransport.ts)
+and the `agent_chat` RPC at
+[`server.rs:247`](../codeless/crates/codeless-rpc/src/server.rs#L247)
+that already drives the in-editor chat) so we don't ship a parallel
+runner.
+
+Requirements:
+
+- Plumb assistant-thread messages into `agent_chat` with the thread's
+  history, returning streamed assistant tokens via the same event
+  channel the in-editor AI chat uses.
+- Tool-call output from the model is shaped as an
+  `AssistantActionCard` and persisted on the message's `meta_json`
+  so [`AssistantThreadView.tsx:227`](../codeless/ui/codeless-ui/src/modules/assistant/AssistantThreadView.tsx#L227)
+  renders it. No new UI work — the card surface already exists.
+- The runner-side tool *registry* lands in F3; for F2, emitting cards
+  is enough — confirming them is allowed to no-op.
+- `agent_chat`'s cwd / registry config (see [`chat.rs:34`](../codeless/crates/codeless-runtime/src/rpc/chat.rs#L34))
+  must be set for assistant threads; pick the workspace root as cwd
+  since threads are workspace-scoped.
+
+Blocks: F3, F1.
+
+### F3 — Tool dispatch + missing `jobs.*` RPCs
+
+The UI confirms action cards via `confirm_assistant_action` at
+[`AssistantThreadView.tsx:112`](../codeless/ui/codeless-ui/src/modules/assistant/AssistantThreadView.tsx#L112).
+The server-side dispatcher needs to turn a confirmed card into the
+right `jobs.*` RPC call.
+
+Requirements:
+
+- Implement the dispatcher in `crates/codeless-runtime/src/rpc/assistant.rs`
+  (or a sibling module) keyed on `AssistantActionCard.action`. Map:
+  `start` → `start_job`, `stop` → `stop_job`, `pause` → `pause_job`,
+  `resume` → `resume_job`, `restart` → `rerun_job`, `update` →
+  `update_job`, `draft_job` → `jobs.draftFromConversation` (new),
+  `edit_scope` → `jobs.updateScope` (new).
+- Add **`jobs.draftFromConversation(threadId) → DraftJob`** and
+  **`jobs.updateScope(jobId, newMarkdown)`** to `codeless-rpc` and
+  `codeless-runtime`. `updateScope` must respect the paused-job rule
+  (§Edit scope) — reject with a typed error on a running job; the
+  UI surfaces that as the "pause first" affordance.
+- Tests: per-tool dispatch test using `MockRunner`; reject path for
+  scope-edit-on-running-job; round-trip test that a confirmed
+  `start` card calls `start_job` exactly once.
+
+Depends on: F2 (planner has to emit cards before dispatch is
+exercised end-to-end, though dispatch can be tested in isolation).
+
+### F1 — Drive the footer AI bar with the assistant
+
+The existing footer composer (`AiInputBar`, mounted from
+[`App.tsx`](../codeless/ui/codeless-ui/src/app/App.tsx) under the
+`panelOpen` motion section) is currently bound to the in-editor AI
+chat (`useChatStore`). Once the planner lands, the footer bar should
+be the *primary* assistant entry point so the user has the assistant
+available from every tab — not just by switching to the `/assistant`
+tab.
+
+Requirements:
+
+- Same composer, same affordances (attachments, image paste,
+  tool-call cards), driven by `CommonChat`'s underlying message
+  model so there's no third chat surface to maintain.
+- The footer bar should target the **current assistant thread**
+  (last-used or pinned) by default; an explicit "new thread" button
+  resets it. Switching to the `/assistant` tab and selecting a
+  different thread updates what the footer bar is bound to.
+- Messages sent from the footer must appear in the `/assistant`
+  thread's transcript on the next render — there is one source of
+  truth (SQLite + subscription), not a footer-local buffer.
+- Action cards that need full-width rendering (diff review, draft
+  review) should still surface on the `/assistant` tab; the footer
+  shows a compact "open in /assistant to confirm →" affordance and
+  the user clicks through. The footer is for chat input + short
+  responses, not for full-screen review.
+- `useChatStore` either becomes the assistant's UI presentation
+  store (scroll, composer draft) and loses its message ownership,
+  or is retired in favour of `CommonChat`'s state. Either way: the
+  in-editor AI chat surface and the assistant become the same
+  thing, accessible from two places.
+
+Depends on: F2 (without a real responder there's nothing useful to
+expose globally) and F3 (action cards need to actually mutate state
+before a "open in /assistant to confirm" hand-off makes sense).

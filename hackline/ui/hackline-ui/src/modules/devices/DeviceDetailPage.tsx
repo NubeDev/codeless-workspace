@@ -85,10 +85,10 @@ export function DeviceDetailPage({ id }: { id: number }) {
             </CardHeader>
             <CardContent className="space-y-1 text-xs">
               <Row label="online" value={String(health?.online ?? device.online)} />
-              <Row label="last seen" value={relTime(health?.last_seen_ts ?? device.last_seen_ts)} />
+              <Row label="last seen" value={relTime(health?.last_seen_at ?? device.last_seen_at)} />
               <Row
-                label="latency p50"
-                value={health?.latency_ms_p50 != null ? `${health.latency_ms_p50} ms` : "—"}
+                label="rtt"
+                value={health?.rtt_ms != null ? `${health.rtt_ms} ms` : "—"}
               />
               <Row label="class" value={device.class} />
             </CardContent>

@@ -14,7 +14,7 @@ export function AuditPage() {
   const refresh = async () => {
     try {
       const page = await api.listAudit({ limit: 200 });
-      setEntries(page.entries);
+      setEntries(page.items);
       setError(null);
     } catch (e) {
       setError(e);
@@ -51,17 +51,17 @@ export function AuditPage() {
                   <th className="px-3 py-2 text-left font-medium">Time</th>
                   <th className="px-3 py-2 text-left font-medium">Actor</th>
                   <th className="px-3 py-2 text-left font-medium">Action</th>
-                  <th className="px-3 py-2 text-left font-medium">Target</th>
+                  <th className="px-3 py-2 text-left font-medium">Subject</th>
                   <th className="px-3 py-2 text-left font-medium">Detail</th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => (
                   <tr key={e.id} className="border-t align-top">
-                    <td className="px-3 py-1.5 text-xs text-muted-foreground">{relTime(e.ts)}</td>
-                    <td className="px-3 py-1.5 text-xs">{e.actor}</td>
+                    <td className="px-3 py-1.5 text-xs text-muted-foreground">{relTime(e.at)}</td>
+                    <td className="px-3 py-1.5 text-xs">{e.actor_user_id != null ? `user:${e.actor_user_id}` : "—"}</td>
                     <td className="px-3 py-1.5 font-mono text-xs">{e.action}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs">{e.target ?? "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs">{e.subject || "—"}</td>
                     <td className="px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
                       {e.detail ? JSON.stringify(e.detail) : "—"}
                     </td>

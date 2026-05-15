@@ -26,7 +26,7 @@ fn default_limit() -> i64 {
 
 #[derive(Serialize)]
 pub struct CmdPage {
-    pub entries: Vec<CmdRow>,
+    pub items: Vec<CmdRow>,
     pub next_cursor: Option<i64>,
 }
 
@@ -44,19 +44,19 @@ pub async fn handler(
     let status = q.status.clone();
     let limit = q.limit;
     let cursor = q.cursor;
-    let entries = tokio::task::spawn_blocking(move || {
+    let items = tokio::task::spawn_blocking(move || {
         cmd_outbox::list_by_device(&conn, device_id, status.as_deref(), cursor, limit)
     })
     .await
     .map_err(|e| GatewayError::Config(format!("blocking task join: {e}")))??;
 
-    let next_cursor = if entries.len() as i64 >= limit {
-        entries.last().map(|r| r.id)
+    let next_cursor = if items.len() as i64 >= limit {
+        items.last().map(|r| r.id)
     } else {
         None
     };
     Ok(Json(CmdPage {
-        entries,
+        items,
         next_cursor,
     }))
 }

@@ -34,3 +34,29 @@ mocks."
 
 v0.1, workspace-linked only. No npm publish yet — consumers
 inside this repo depend via pnpm `workspace:*`.
+
+## Testing
+
+```
+pnpm install
+pnpm test            # one shot
+pnpm test:watch      # rerun on change
+```
+
+The suite is a real-binary loopback harness — there are no mocks,
+fakes, fixtures, or stubs. `test/globalSetup.ts` builds the
+`hackline-gateway` `serve` binary if it is not already present
+(`cargo build -p hackline-gateway --bin serve`), spawns it against
+an ephemeral SQLite DB and a loopback Zenoh listener on a free
+port, claims it over `/v1/claim`, and hands the resulting
+`{ baseUrl, token }` to the test workers via vitest's `provide`
+channel. `globalTeardown` SIGTERMs (then SIGKILLs) the child and
+removes the tempdir.
+
+The harness picks free ports on `127.0.0.1`, so `pnpm test` does
+not collide with a running dev stack on `:8080` / `:1430`. There is
+one shared gateway per test run — `vitest.config.ts` uses
+`pool: "forks"` with `singleFork: true`.
+
+From the workspace root the same suite is also wired as
+`make test-client`.

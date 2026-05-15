@@ -25,7 +25,7 @@ export interface ApiClient {
   hasToken(): boolean;
 
   // Health / claim
-  health(): Promise<{ ok: true }>;
+  health(): Promise<{ status: "ok" }>;
   claimStatus(): Promise<ClaimStatus>;
   claim(input: { token: string; owner: string }): Promise<{ token: string; owner: string }>;
 
@@ -58,13 +58,13 @@ export interface ApiClient {
   listCmd(input: {
     device_id: number;
     status?: CmdStatus;
-    cursor?: string | null;
+    cursor?: number | null;
     limit?: number;
   }): Promise<Page<CmdOutboxRow>>;
   cancelCmd(cmd_id: string): Promise<void>;
 
   // Audit
-  listAudit(input?: { cursor?: string | null; limit?: number }): Promise<Page<AuditEntry>>;
+  listAudit(input?: { cursor?: number | null; limit?: number }): Promise<Page<AuditEntry>>;
 
   // Users
   listUsers(): Promise<User[]>;

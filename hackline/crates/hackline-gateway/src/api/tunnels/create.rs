@@ -6,7 +6,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::auth::middleware::AuthedUser;
-use crate::db::{devices, tunnels};
+use crate::db::{audit, devices, tunnels};
 use crate::error::GatewayError;
 use crate::state::AppState;
 use crate::tunnel::manager::TunnelEvent;
@@ -78,6 +78,31 @@ pub async fn handler(
                 let _ = state.tunnel_tx.send(TunnelEvent::Added(twz)).await;
             }
         }
+    }
+
+    // SCOPE.md §7.2: `tunnel.create` requires `kind`, `local_port`,
+    // and the `public_*` fields the operator asked for. The new
+    // tunnel + device ids go in `detail` rather than the FK columns
+    // — audit's FKs to `tunnels(id)` and `devices(id)` are plain
+    // (no `ON DELETE SET NULL`), so a row pointing at them would
+    // block the operator from ever deleting the tunnel/device.
+    {
+        let db = state.db.clone();
+        let user_id = caller.id;
+        let detail = serde_json::json!({
+            "tunnel_id": tunnel.id,
+            "device_id": tunnel.device_id,
+            "kind": tunnel.kind,
+            "local_port": tunnel.local_port,
+            "public_hostname": tunnel.public_hostname,
+            "public_port": tunnel.public_port,
+        })
+        .to_string();
+        let _ = tokio::task::spawn_blocking(move || -> Result<(), GatewayError> {
+            let conn = db.get()?;
+            audit::insert(&conn, Some(user_id), None, None, "tunnel.create", Some(&detail))
+        })
+        .await;
     }
 
     Ok((axum::http::StatusCode::CREATED, Json(tunnel)))

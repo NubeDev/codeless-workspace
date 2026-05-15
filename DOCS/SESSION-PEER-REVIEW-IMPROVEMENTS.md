@@ -40,11 +40,17 @@ Yes, but with three real limitations:
 3. **Mtime-keyed discovery.** `find_latest_handover` walks
    `.codeless/worktrees/job-*/runs/*/handover.md` and picks the newest
    file by mtime. Concurrent jobs in the same repo can race; the
-   "wrong" job's handover can prime the wrong next session.
+   "wrong" job's handover can prime the wrong next session. This is
+   the failure mode H3 below targets — referenced from there rather
+   than re-described.
 
-## 10x ideas — handover
+## Handover changes
 
-Ordered by leverage, not by effort.
+Split into **correctness gaps** (H1, H6, H7 — the current system gets
+these wrong, they aren't 10x improvements) and **leverage moves** (H2,
+H3, H4, H5, H8 — these change what the system can do). The MVP slice
+at the bottom favours the correctness gaps; leverage moves layer on
+top.
 
 ### H1. Per-stage handover, not just per-job
 
@@ -66,8 +72,16 @@ exists:
 - `decisions: Vec<Decision { what, why, alternative_considered }>`
 - `invariants: Vec<Invariant { statement, enforced_by }>`
 - `followups: Vec<Followup { description, owner_stage, blocking: bool }>`
-- `artefacts: Vec<Artefact { path, kind, sha }>` — every file the
-  stage touched, content-hashed so the next session can detect drift
+- `commit: Option<CommitRef { sha, branch }>` — the stage's commit, if
+  any.
+
+**Rule: use `git diff` for the file list, do not duplicate it in the
+handover.** The handover stores the commit SHA; the next session (and
+the reviewer) runs `git diff <sha>^..<sha>` to see what changed.
+Storing a separate `artefacts` array creates a second source of truth
+that will drift from the actual tree the moment something rebases,
+amends, or cherry-picks. One source of truth per fact: commits own
+"what files changed", handover owns "what the session was thinking".
 
 `done` / `next` / `what_you_need_to_know` stay as free prose for the
 soft stuff; the structured fields make the handover queryable,
@@ -77,9 +91,11 @@ artefact view, not a markdown render.
 ### H3. Handover discovery is keyed, not heuristic
 
 Replace mtime ranking with explicit lookup: the next session asks for
-`(job_id, stage_id - 1)` or `(repo_id, prior_job_id)`. Mtime survives
-as a tiebreaker for "find the most recent handover in this repo I have
-no other signal about", but the happy path never uses it.
+`(job_id, stage_id - 1)` or `(repo_id, prior_job_id)`. Delete
+`find_latest_handover` rather than keeping it as a fallback — an
+unkeyed fallback is exactly the race condition this fix is meant to
+remove. If a session has no key to look up, that is a bug in the
+caller, not a case the runtime should paper over.
 
 ### H4. Handover is published as an event, not just a file
 
@@ -92,20 +108,27 @@ the source of truth; the event is the notification.
 ### H5. Round-trip the handover through the model's *next* turn
 
 When a new session starts with a prepended handover, ask it to
-**acknowledge** the four sections in its first reply ("I understand
-that X is done, my next step is Y, the gotchas are Z, I am resolving
-the open questions before implementing: ..."). The runtime parses
-the ack and stores it. If the ack disagrees materially with the
-handover (NLI-style check against `done` / `next` / `open_questions`),
-flag it. This is cheap and catches the "model ignored the prefix and
-re-did stage 4" failure mode early.
+**acknowledge** ("ack" = a structured first-reply summary) the four
+sections. The runtime parses the ack and stores it. The temptation
+is to NLI-check the ack against the handover prose, but free-prose
+NLI is noisy enough that the false-positive rate trains the team to
+ignore the flag. Gate the check on the *structured* fields from H2
+instead: does the ack reference each `Decision` by id? Does it list
+every `Followup` marked `blocking`? A missing structured field is a
+hard signal; a paraphrased prose section is not. This keeps the
+catch-rate for "model ignored the prefix and re-did stage 4" without
+the NLI noise floor.
 
 ### H6. Versioned handover schema
 
 Stamp `schema_version: u32` on the wire type now while it is cheap. A
 session that reads a newer-than-supported handover should fail closed
 instead of silently dropping unknown fields, and the system prompt
-hint can vary by version.
+hint can vary by version. "Fail closed" means: the runtime parks the
+job in `AwaitingHumanReview` with `Event::HandoverSchemaMismatch
+{ found, supported }`; it does not hard-fail the runtime and does not
+silently downgrade. The version mismatch is a deployment problem, not
+a job problem.
 
 ### H7. Handover validation at write time
 
@@ -116,7 +139,10 @@ Promote the rule into `Handover::validate()`:
 - `next` non-empty unless `status == Completed` AND this was the last
   stage of a finite plan
 - `what_you_need_to_know` non-empty if the stage made any
-  non-trivial-shaped commit (heuristic: more than N lines changed)
+  non-trivial-shaped commit. Threshold TBD: pick a number once we have
+  a week of real handover data to look at — do not ship `N=1` as a
+  placeholder. Until the threshold is set, this rule is a warning,
+  not a validation failure.
 - `open_questions` empty implies *settled* — the next session reads it
   as "do not re-litigate"
 
@@ -129,10 +155,14 @@ emitted a blank section".
 A handover that grows unboundedly across many stages is the slow
 version of "session prompt overflows". Today `prompt_prefix_for` just
 concatenates. Add a budget per session run: each handover gets a hard
-ceiling (e.g. 8k tokens); compression happens at write time, not read
-time, so the artefact on disk is the same one the next session sees.
+ceiling (e.g. 8k tokens). Keep both copies on disk:
+`handover.full.md` (uncompressed, audit trail) and `handover.md`
+(compressed, what the next session prompt prefix actually sees).
+Compressing destructively would mean a future debugger can never see
+what the model originally wrote — that's the wrong tradeoff for a few
+extra KB of disk.
 
-## 10x ideas — peer review between sessions
+## Peer review between sessions
 
 The user's framing: a session, before "moving on", invokes a peer
 review. The reviewer decides whether the session can hand off cleanly,
@@ -143,6 +173,12 @@ This maps onto existing pieces: REVIEW stages already exist in
 `TemplateRunner` (they emit `Event::ReviewRequested` but do not block
 today). The peer-review proposal turns the gate from advisory into
 load-bearing.
+
+**Load-bearing premise (carried by every P-idea below): the reviewer
+runs in a separate session from the worker.** Same-session
+"self-review" is not a review — it is a self-confirmation. The whole
+gate degrades to theatre if this is relaxed. P1 spells out the
+mechanics; the rest of the P ideas assume it.
 
 ### P1. Reviewer is a separate session, not the same model thread
 
@@ -190,10 +226,20 @@ work-session → peer-review
     Fail               → escalate (human, or a different-runner session)
 ```
 
-Loop bound is fixed: one redo, period. A second `Fail` does not retry
-again — it surfaces an `Event::ReviewEscalated` and parks the job in
-`AwaitingHumanReview`. The point of bounding the loop is to make the
-failure mode *visible* instead of *expensive*.
+Loop bound is fixed: **one** redo, period. Why one and not two: each
+extra redo doubles cost while the marginal catch-rate drops fast (if
+the worker got it wrong twice, a third try usually rationalises rather
+than fixes). One redo forces the failure to become visible quickly;
+more redos hide it under spend.
+
+A second `Fail` does not retry again — it surfaces an
+`Event::ReviewEscalated` and parks the job in `AwaitingHumanReview`.
+
+**Reviewer errors are not `Fail`.** A timeout, malformed verdict, or
+crashed reviewer process counts as `ReviewErrored`, not `ReviewFailed`
+— it does not consume the redo budget. The runtime retries the
+*reviewer* up to a small fixed cap (e.g. 2) before escalating; a
+broken reviewer should not eat the worker's one allowed redo.
 
 The retry count lives on the stage row (`stages.review_attempts`),
 not in the model's prompt — the runtime enforces it. The redo session
@@ -211,16 +257,30 @@ three-part packet:
    specific blockers; do not re-architect."
 
 Schema-wise this is a new wire type, not a `Handover`. Call it
-`RedoBriefing` so the model and the runtime can tell them apart.
+`RedoBriefing` so the model and the runtime can tell them apart. It
+lives in `codeless-types` next to `Handover` and `ReviewVerdict` — all
+three are wire types crossing the runtime / UI / RPC boundary.
 
 ### P5. Reviewer selection is a policy hook
 
-MVP: same runner, fresh session. Phase-2: different runner (claude
-work-session → codex peer-review) so a single-model failure mode
-cannot pass itself. Phase-3: deterministic reviewer for cheap checks
-(lint / typecheck / test run as a "reviewer" with its own typed
-verdict) before the LLM reviewer ever runs. The interface stays
-`Reviewer -> ReviewVerdict`; what produces the verdict is policy.
+**The leverage move here: a different runner reviews the work, so a
+single-model failure mode cannot pass itself.** A claude worker that
+hallucinated a function name will hallucinate the same name when
+asked to review its own diff; a codex reviewer reading the same diff
+fresh will not. This is the strongest single argument for the gate.
+
+Roll-out:
+
+- MVP: same runner, fresh session. Validates the gate mechanics.
+- Phase-2: different runner (claude work-session → codex peer-review).
+  This is where the failure-mode-isolation actually kicks in.
+- Phase-3: deterministic reviewer for cheap checks (lint / typecheck
+  / test run as a "reviewer" with its own typed verdict) before the
+  LLM reviewer ever runs. Cheap checks first amortise the LLM
+  reviewer's token cost (see P8 budget discussion).
+
+The interface stays `Reviewer -> ReviewVerdict`; what produces the
+verdict is policy.
 
 ### P6. The review is an event-stream artefact
 
@@ -245,14 +305,30 @@ diff? does `what you need to know` capture the real gotchas?" An
 inaccurate handover is itself a `Fail` reason (`section:
 HandoverSection::Done`).
 
+Mechanical pre-check (paired with H2): before the LLM reviewer ever
+runs, the runtime validates that every commit / file referenced in
+the handover's structured fields actually appears in `git diff
+<commit>^..<commit>`. A reference to a file the diff does not touch
+is an automatic `Fail` with `severity: Blocker`, no LLM tokens spent.
+The LLM reviewer is for judgement calls, not for catching
+falsifiable claims the runtime can verify itself.
+
 ### P8. Cost / time caps on the review loop
 
 A review session has its own budget envelope. The default should be
 small — a review that takes longer than the work it reviewed is a
-smell. The retry loop has a job-level cap too: if total review-spend
-exceeds N% of total work-spend, escalate without running another
-review. This protects against pathological "two models argue forever"
-runs.
+smell. The retry loop has a job-level cap too: review spend is
+capped at `max(absolute_floor, N% of work_spend)`. The floor matters
+because early stages have near-zero work-spend, so a pure percentage
+cap escalates every early review. Suggested starting values:
+`absolute_floor = 4k tokens`, `N = 50%`. Once exceeded, escalate
+without running another review.
+
+Acknowledge the per-stage cost: a separate-session reviewer (P1)
+roughly doubles per-stage tokens. That is the price of the gate.
+P5 phase-3 (deterministic reviewers run first) exists partly to
+amortise this — a stage that fails `cargo check` never reaches the
+LLM reviewer.
 
 ### P9. The review verdict feeds the next handover's prompt prefix
 
@@ -266,10 +342,15 @@ the signal to investigate before building on top.
 
 A human reading the job page can click `Override -> Pass` or
 `Override -> Fail` and the runtime treats it as a `ReviewVerdict` with
-`reviewer_kind: Human`. Same wire shape, same event, same retry
-accounting. The point is to not have two parallel state machines (one
-for AI review, one for human review) — there is one gate, multiple
-kinds of reviewer.
+`reviewer_kind: Human`. Same wire shape, same event. The point is to
+not have two parallel state machines (one for AI review, one for
+human review) — there is one gate, multiple kinds of reviewer.
+
+Human verdicts **reset** `review_attempts` to zero — they do not
+consume the AI redo budget. The budget exists to bound AI loops, not
+human ones; a human Pass that says "yes this is fine" should leave
+the next stage with a full budget if the AI gate triggers again
+later.
 
 ## What this implies for SCOPE.md
 
@@ -289,32 +370,157 @@ move:
    what changes is the runtime waits on the resulting verdict before
    advancing.
 
-R1 (crate dependency direction) is unaffected — reviewers live in
-`codeless-runtime` and `codeless-adapters-host` like the existing
-runners. R2 (single transport) is unaffected — the verdict is a wire
-type, the UI consumes it via `RpcClient`. R4 (SQLite source of truth)
-gets reinforced: the verdict lands in the `reviews` table, not in a
-sidecar JSON.
+R1 (crate dependency direction) is unaffected. Crate ownership:
+`Reviewer` *trait* and the `ReviewVerdict` / `RedoBriefing` wire
+types live in `codeless-types` (mobile-safe, no process spawn).
+`Reviewer` *implementations* live in `codeless-runtime` (pure-API
+reviewers like Anthropic-direct) and `codeless-adapters-host`
+(process-spawning reviewers like a CLI claude review wrapper). The
+mobile shell can read verdicts and render them; it cannot host a
+reviewer that spawns. R2 (single transport) is unaffected — the
+verdict is a wire type, the UI consumes it via `RpcClient`. R4
+(SQLite source of truth) gets reinforced: the verdict lands in the
+`reviews` table, not in a sidecar JSON.
 
-## Minimum-viable first slice
+### Concurrency and idempotency
 
-If we want a 10x change but not a 10-month project, ship this
-sequence:
+Two hazards the proposal does not address by default:
 
-1. **Per-stage handover** (H1) — pure additive change in
-   `TemplateRunner`; no schema migration.
-2. **Handover validation at write time** (H7) — pure code change in
-   `codeless-types`; rejects blank-done handovers.
-3. **REVIEW stages actually block** — flip the existing
-   `Event::ReviewRequested` from advisory to load-bearing using the
-   review row that already exists in the schema.
-4. **Typed verdict** (P2) — the smallest version: `Pass | Fail`, no
-   followups, no retry, just a gate.
-5. **One redo, then escalate** (P3) — fixed-bound retry on `Fail`.
-6. **Different-runner reviewer** (P5 phase-2) — once 1-5 are stable.
+1. **Concurrent jobs in the same workspace.** When job A in repo X
+   finishes and waits on a reviewer, job B in repo Y can finish and
+   request a reviewer too. The review queue must be its own resource
+   with bounded parallelism; otherwise a slow reviewer in one repo
+   stalls every other repo's gate. Treat reviewers as a worker pool
+   alongside the runner pool, sized independently.
+2. **Reviewer crash mid-verdict.** If the runtime restarts after the
+   reviewer started but before the verdict is committed, the runtime
+   must distinguish "no verdict yet" from "verdict was Fail". The
+   `reviews` row is created with `status: InFlight` *before* the
+   reviewer is invoked; the verdict update is the commit point. A
+   restart finding `InFlight` rows treats them as `ReviewErrored`
+   (per P3's reviewer-error rule) and re-runs the reviewer, without
+   consuming the worker's redo budget.
 
-Everything else (structured handover, NLI ack check, deterministic
-reviewers, cost caps) is a refinement on top of that backbone.
+## Reconsider: rules + one audit agent vs. a framework
+
+Before committing to typed verdicts, schema migrations, reviewer
+factories, retry state machines, and crash-recovery for in-flight
+review rows — ask whether a much smaller surface gets 80% of the
+value:
+
+**The two-part alternative:**
+
+1. **Tighter SCOPE / JOB-MODEL / AGENT rules the worker follows.** A
+   handover spec that's strict and exemplified is worth more than a
+   `validate()` method on a wire type — the model is going to read
+   the spec either way, and if the spec is good the validation
+   catches almost nothing. Same for "ack the prior handover before
+   coding" and "verify your `done` against `git diff` before writing
+   the handover" — these are prompt rules, not runtime features.
+
+2. **One job-audit agent, triggered after every stage.** A single
+   subagent prompted to: read the handover, run `git diff`, decide
+   `PASS` or `FAIL: <reason>` on a single line. The runtime parses
+   that one line. No `ReviewVerdict` enum, no `ReviewIssue` struct,
+   no `Severity`, no `must_address`, no per-section taxonomy. If the
+   audit agent's prompt evolves, no schema migrates with it. If a new
+   class of issue matters, you add a sentence to the prompt — not a
+   variant to an enum that ships through three crates.
+
+**What you give up by going prompt-first:**
+
+- The UI cannot render structured verdicts as cards / charts / filters
+  — it renders a transcript. For MVP this is fine; rich review UI is
+  a Phase-2 problem the framework approach was solving prematurely.
+- Queries like "show me every Blocker reason this week" become
+  grep-the-transcripts instead of SQL. Real cost, but defer it until
+  you have enough volume to care.
+- Cross-tool consistency (claude reviewer, codex reviewer, lint
+  reviewer all emit the same shape) is harder. Defer until P5
+  phase-2 actually ships.
+
+**What you keep with prompt-first:**
+
+- The gate itself (PASS/FAIL blocks advancement).
+- Bounded redo (P3 — count attempts in a SQLite int, no schema for
+  the verdict shape needed).
+- Different-runner reviewer (P5 — agent kind is a config string,
+  not a trait).
+- Audit transcripts as event-stream artefacts (P6 — write a markdown
+  file, emit one event with the path).
+
+**Recommended posture:** ship the prompt-first version first. Promote
+to typed verdicts only when a *specific* downstream feature (a UI
+view, a metrics dashboard, a policy engine) demands the structure.
+Until then, every typed field is YAGNI on the framework side and
+overhead on the agent side.
+
+This collapses the implementation: most of the H ideas become bullet
+points in `JOB-MODEL.md`; most of the P ideas become paragraphs in
+the audit agent's prompt template. The runtime change is roughly: a
+hook after each stage, a process invocation, a regex on the output,
+a SQLite int for retry count. That is days of work, not weeks.
+
+## Quick wins, in order
+
+Built bottom-up so each tier validates the next. Stop at any tier
+once it stops paying back.
+
+### Tier 0 — docs only, ship today (hours)
+
+1. **Tighten the handover spec in `JOB-MODEL.md`.** Worked example
+   per section, an explicit anti-example, and the rule "non-empty
+   `done` and `next` unless the stage aborted or terminated the
+   plan". No code changes — the worker just gets a better spec.
+2. **Add a JOB-LOOP rule: ack-then-code.** A stage that received a
+   prefixed handover must restate the prior `next` in its own words
+   in the first reply. Pure prompt rule.
+3. **Add a JOB-LOOP rule: verify-before-handover.** Before writing
+   the handover, run `git diff <stage-base>..HEAD` and confirm every
+   path mentioned in `done` appears in the diff. Catches the most
+   common reviewer-fail-reason without any reviewer.
+
+### Tier 1 — minimum runtime hooks (1-2 days)
+
+4. **Per-stage handover (H1).** Additive change in `TemplateRunner`;
+   no schema migration. Pays off the moment any multi-stage job runs.
+5. **Keyed handover discovery (H3).** Delete `find_latest_handover`,
+   look up `(job_id, stage_id - 1)` directly. Removes the concurrent-
+   job race. Code-only.
+6. **Write-time handover validation (H7, light).** `Handover::parse`
+   returns `Err` for blank `done` / blank `next`. No schema version,
+   no structured fields yet — just the not-blank checks.
+
+### Tier 2 — the audit agent (2-3 days)
+
+7. **Wire one job-audit subagent after every stage.** Inputs:
+   handover + `git diff` + stage title. Output contract: a single
+   line, `PASS` or `FAIL: <one-sentence reason>`. Runtime parses the
+   line and gates the next stage. No typed verdict, no retry — `FAIL`
+   parks the job in `AwaitingHumanReview`.
+8. **Persist the audit transcript** at
+   `runs/<job_id>/<stage_id>/audit.md` and emit one event
+   (`Event::AuditDecided { stage_id, outcome, transcript_path }`).
+   Timeline-renderable; no schema for the verdict.
+
+### Tier 3 — once the audit agent has shown value (1-2 days each)
+
+9. **One bounded redo on FAIL** (P3, minimal). SQLite int
+   `stages.audit_attempts`. On `FAIL`, re-queue the stage once with
+   the audit transcript prepended. Second `FAIL` escalates.
+10. **Different-runner audit agent** (P5 phase-2). Config string:
+    "claude work, codex audit". The big leverage move — but only
+    after Tier 2 has caught real issues and you trust the gate.
+11. **Mechanical pre-check** (P7 hardening). Before invoking the
+    audit agent, runtime verifies every path in handover's `done`
+    appears in the diff; auto-`FAIL` with no tokens spent.
+
+### Tier 4 — only if a specific downstream feature demands it
+
+Promote to structured verdicts (P2), structured handover fields (H2),
+schema versioning (H6), `ReviewVerdict` wire type, etc. Each of these
+should be justified by a named UI view or metric, not by "it would
+be nicer". Until then they are framework on speculation.
 
 ## Open questions
 
@@ -325,10 +531,8 @@ reviewers, cost caps) is a refinement on top of that backbone.
 - When a redo runs, does it inherit the worker's claude session id
   (cheap, continuity) or start fresh (clean slate, no rationalising)?
   Probably: fresh — the point of a redo is to not double down.
-- Is there a "PassWithFollowup that the next stage must address"
-  versus "PassWithFollowup that anyone can pick up later"? Probably
-  yes; the runtime should know the difference because it drives whether
-  the next stage's prompt prefix includes the followups as blockers.
-- Does the human override count against the retry budget? Probably
-  no — a human verdict resets the counter; the budget exists to bound
-  *AI* loops, not human ones.
+
+(Two earlier open questions resolved in-line: the
+`PassWithFollowup` blocking distinction is captured by P2's
+`must_address: Vec<StageId>` field; the human-override budget rule is
+in P10.)

@@ -6,21 +6,30 @@
 
 export type DeviceClass = "linux" | "constrained";
 
+// Wire shape per `DOCS/openapi.yaml` Device + the gateway's actual JSON
+// (`crates/hackline-gateway/src/db/devices.rs::Device`). Timestamps are
+// unix epoch seconds, not ISO strings; `last_seen_at` is the canonical
+// name (the prior `last_seen_ts: string|null` lied on both axes).
+//
+// `class` and `online` are *not* on the wire today — the legacy UI
+// reads them anyway and gets `undefined`. Removing them ripples through
+// `DevicesPage`/`DeviceDetailPage` (online needs a per-row health
+// fetch); deferred to a follow-up so this rename diff stays grepable.
 export interface Device {
   id: number;
   zid: string;
-  label: string | null;
+  label: string;
   class: DeviceClass;
   customer_id: number | null;
   online: boolean;
-  last_seen_ts: string | null;
-  created_at: string;
+  last_seen_at: number | null;
+  created_at: number;
 }
 
 export interface DeviceHealth {
   online: boolean;
-  last_seen_ts: string | null;
-  latency_ms_p50: number | null;
+  last_seen_at: number | null;
+  rtt_ms: number | null;
 }
 
 export interface AgentInfo {
@@ -30,8 +39,13 @@ export interface AgentInfo {
   uptime_s: number;
 }
 
-export type TunnelKind = "http" | "tcp" | "ssh";
+export type TunnelKind = "http" | "tcp";
 
+// Wire shape per `DOCS/openapi.yaml` Tunnel + the gateway row in
+// `crates/hackline-gateway/src/db/tunnels.rs::Tunnel`. Timestamps are
+// unix epoch seconds (int64), not ISO strings. `enabled` is required
+// on the wire — the prior TS type omitted it; `"ssh"` was speculative
+// (openapi enum is `[tcp, http]`).
 export interface Tunnel {
   id: number;
   device_id: number;
@@ -39,7 +53,8 @@ export interface Tunnel {
   local_port: number;
   public_hostname: string | null;
   public_port: number | null;
-  created_at: string;
+  enabled: boolean;
+  created_at: number;
 }
 
 export type CmdStatus = "pending" | "delivered" | "acked" | "expired";
@@ -57,12 +72,18 @@ export interface CmdOutboxRow {
   detail: string | null;
 }
 
+// Wire shape per `DOCS/openapi.yaml` AuditEntry, projected
+// server-side from `db::audit::AuditEntry` (the DB row carries
+// `tunnel.session`-shaped extras that are not on the wire). The
+// prior TS shape (`ts: string`, `actor: string`, `target: string |
+// null`, `detail: object | null`) had no producer — `e.actor` and
+// `e.target` rendered as `undefined` in the UI.
 export interface AuditEntry {
   id: number;
-  ts: string;
-  actor: string;
+  at: number;
+  actor_user_id: number | null;
   action: string;
-  target: string | null;
+  subject: string;
   detail: Record<string, unknown> | null;
 }
 
@@ -78,14 +99,23 @@ export interface User {
   created_at: string;
 }
 
+// Wire shape per `DOCS/openapi.yaml` TokenMinted + the gateway
+// handler `crates/hackline-gateway/src/api/users/mint_token.rs`,
+// which serialises `MintTokenResponse { token: String }` only.
+// The prior TS shape carried a fabricated `expires_at: string|null`
+// that the server has never returned.
 export interface MintedToken {
   token: string;
-  expires_at: string | null;
 }
 
+// Generic page envelope per `DOCS/openapi.yaml` §AuditPage. All
+// paginated endpoints (audit, cmd outbox, events, logs) share this
+// shape: `items` (not `entries`) and a numeric cursor. The prior
+// `{ entries, next_cursor: string|null }` shape disagreed with the
+// schema on both axes.
 export interface Page<T> {
-  entries: T[];
-  next_cursor: string | null;
+  items: T[];
+  next_cursor: number | null;
 }
 
 export interface ClaimStatus {

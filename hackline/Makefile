@@ -43,7 +43,7 @@ PNPM_CMD    := pnpm -C ui/hackline-ui
 HACKLINE_GATEWAY_URL ?= http://$(GATEWAY_BIND)
 export HACKLINE_GATEWAY_URL
 
-.PHONY: start stop kill restart gateway ui gateway-fg ui-fg claim logs status clean help
+.PHONY: start stop kill restart gateway ui gateway-fg ui-fg claim logs status clean help test-client
 
 help:
 	@echo "hackline dev:"
@@ -202,3 +202,9 @@ logs:
 clean: stop
 	@rm -rf $(DEV_DIR)
 	@echo "removed $(DEV_DIR)/"
+
+# Loopback integration tests for the @hackline/client package.
+# Spawns its own gateway on ephemeral ports + tempdir DB; does not
+# touch the dev stack at $(GATEWAY_BIND) / port $(UI_PORT).
+test-client:
+	@pnpm -C clients/hackline-ts test
