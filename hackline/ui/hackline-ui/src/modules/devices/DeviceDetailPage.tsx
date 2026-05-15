@@ -9,6 +9,12 @@ import type { AgentInfo, Device, DeviceHealth, Tunnel } from "@/lib/api";
 import { navigate } from "@/lib/route";
 import { relTime } from "@/lib/utils";
 
+// Same cadence as `DevicesPage` so liveliness freshness feels
+// consistent when the user navigates between list and detail.
+// At 5 s the goal-27 1 s RTT cache misses on every refresh for
+// this single device (which is fine: one Zenoh query every 5 s).
+const HEALTH_POLL_MS = 5_000;
+
 export function DeviceDetailPage({ id }: { id: number }) {
   const api = useApi();
   const [device, setDevice] = useState<Device | null>(null);
@@ -19,15 +25,24 @@ export function DeviceDetailPage({ id }: { id: number }) {
 
   useEffect(() => {
     let cancelled = false;
+    const pollHealth = () => {
+      api
+        .getDeviceHealth(id)
+        .then((h) => !cancelled && setHealth(h))
+        .catch(() => {});
+    };
     (async () => {
       try {
         const [d, ts] = await Promise.all([api.getDevice(id), api.listTunnels()]);
         if (cancelled) return;
         setDevice(d);
         setTunnels(ts.filter((t) => t.device_id === id));
-        // Info + health are best-effort: a constrained device has no
-        // agent and an offline device's `info` query times out.
-        api.getDeviceHealth(id).then((h) => !cancelled && setHealth(h)).catch(() => {});
+        // Info is best-effort and only meaningful on linux-class
+        // devices (constrained agents don't speak the info topic).
+        // Health is polled separately below; the once-on-mount
+        // call here is the first tick so the badge fills in
+        // immediately, not after `HEALTH_POLL_MS`.
+        pollHealth();
         if (d.class === "linux") {
           api.getDeviceInfo(id).then((i) => !cancelled && setInfo(i)).catch(() => {});
         }
@@ -35,8 +50,10 @@ export function DeviceDetailPage({ id }: { id: number }) {
         if (!cancelled) setError(e);
       }
     })();
+    const intervalId = window.setInterval(pollHealth, HEALTH_POLL_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [api, id]);
 
@@ -68,9 +85,13 @@ export function DeviceDetailPage({ id }: { id: number }) {
         description={device.zid}
         actions={
           <>
-            <Badge variant={device.online ? "ok" : "err"}>
-              {device.online ? "online" : "offline"}
-            </Badge>
+            {health == null ? (
+              <Badge variant="outline">—</Badge>
+            ) : (
+              <Badge variant={health.online ? "ok" : "err"}>
+                {health.online ? "online" : "offline"}
+              </Badge>
+            )}
             <Button variant="outline" size="sm" onClick={() => navigate({ name: "devices" })}>
               Back
             </Button>
@@ -84,8 +105,18 @@ export function DeviceDetailPage({ id }: { id: number }) {
               <CardTitle>Health</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-xs">
-              <Row label="online" value={String(health?.online ?? device.online)} />
-              <Row label="last seen" value={relTime(health?.last_seen_at ?? device.last_seen_at)} />
+              {/* The first three rows all come from the same probe
+                  so they're rendered atomically: either all from
+                  `health` or all `—`. Mixing in `device.last_seen_at`
+                  as a fallback would let `online` flip while
+                  `last seen` lagged a tick — a visible UI lie.
+                  `class` is a row property, not a probe result, so
+                  it stays sourced from `device`. */}
+              <Row label="online" value={health == null ? "—" : String(health.online)} />
+              <Row
+                label="last seen"
+                value={health == null ? "—" : relTime(health.last_seen_at)}
+              />
               <Row
                 label="rtt"
                 value={health?.rtt_ms != null ? `${health.rtt_ms} ms` : "—"}
