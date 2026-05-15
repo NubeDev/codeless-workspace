@@ -5,10 +5,10 @@ TypeScript client for the [hackline](../../) gateway. Speaks the REST
 
 Two import surfaces:
 
-- `@hackline/client` — `ApiClient` interface, `HttpApiClient`
+- `@hackline/client` — `ApiClient` interface and `HttpApiClient`
   implementation against the gateway's `/v1/*` REST + `/v1/events/stream`
-  SSE endpoints, `MockApiClient` for tests, plus the hand-written
-  `types.ts` covering the REST request/response shapes.
+  SSE endpoints, plus the hand-written `types.ts` covering the REST
+  request/response shapes.
 - `@hackline/client/wire` — Rust-generated wire types from
   `hackline-proto` (connection lifecycle, `Event`, `MsgEnvelope`,
   `CmdEnvelope`, `ApiRequest`, `ApiReply`). Used by direct Zenoh
@@ -19,6 +19,16 @@ The two surfaces overlap conceptually but not in shape today — the
 gateway's SSE event JSON is hand-written, the Zenoh-side `Event` enum
 comes from Rust. They will be reconciled when the gateway grows
 specta-derived types.
+
+## No mocks
+
+This package ships only real-transport clients. There is no
+`MockApiClient`, no in-memory fixture mode, and no `?mock=1`
+short-circuit in any consumer. Tests — in this package and in
+downstream consumers — run against a real gateway (loopback Zenoh
+router for E2E). See `DOCS/CODEBASE-ANALYSIS.md` and
+`DOCS/DEVELOPMENT.md`: "if it's wrong, do not paper over it with
+mocks."
 
 ## Status
 

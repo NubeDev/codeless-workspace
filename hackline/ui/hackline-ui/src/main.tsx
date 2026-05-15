@@ -7,16 +7,17 @@ import { App } from "./App";
 import {
   ApiProvider,
   HttpApiClient,
-  MockApiClient,
   readBaseUrl,
   readToken,
   type ApiClient,
 } from "./lib/api";
 import { ClaimScreen } from "./modules/claim/ClaimScreen";
 
-// Boot order matches codeless-ui's browser shell:
-//   1. `?mock=1` short-circuits to MockApiClient (UI-only dev).
-//   2. Otherwise probe /v1/health on the configured base URL.
+// Boot order. The UI talks only to a real gateway — no in-memory
+// mock fast-path. If the gateway is down, the operator sees a
+// "cannot reach gateway" screen and starts it.
+//
+//   1. Probe `GET /v1/health` on the configured base URL.
 //      - unreachable -> honest "cannot reach gateway" screen
 //      - reachable + unclaimed -> ClaimScreen (writes the owner token)
 //      - reachable + claimed but no token -> Settings is the only
@@ -28,12 +29,7 @@ type Mode =
   | { kind: "down"; baseUrl: string }
   | { kind: "claim" }
   | { kind: "no-token" }
-  | { kind: "ready" }
-  | { kind: "mock" };
-
-function isMockRequested(): boolean {
-  return new URLSearchParams(window.location.search).get("mock") === "1";
-}
+  | { kind: "ready" };
 
 function buildHttp(): HttpApiClient {
   return new HttpApiClient({ baseUrl: readBaseUrl(), token: readToken() });
@@ -41,12 +37,8 @@ function buildHttp(): HttpApiClient {
 
 function Root() {
   const [baseUrl] = useState(readBaseUrl);
-  const [client, setClient] = useState<ApiClient | null>(() =>
-    isMockRequested() ? new MockApiClient() : null,
-  );
-  const [mode, setMode] = useState<Mode>(() =>
-    isMockRequested() ? { kind: "mock" } : { kind: "probing" },
-  );
+  const [client, setClient] = useState<ApiClient | null>(null);
+  const [mode, setMode] = useState<Mode>({ kind: "probing" });
 
   useEffect(() => {
     if (mode.kind !== "probing") return;
@@ -99,7 +91,6 @@ function Root() {
   return (
     <ApiProvider client={client}>
       <App />
-      {mode.kind === "mock" ? <MockBadge /> : null}
     </ApiProvider>
   );
 }
@@ -112,8 +103,8 @@ function ServerDown({ baseUrl, onRetry }: { baseUrl: string; onRetry: () => void
         <p className="text-xs text-muted-foreground">The UI tried:</p>
         <pre className="rounded bg-muted px-2 py-1 text-xs">{baseUrl}</pre>
         <p className="text-xs text-muted-foreground">
-          Start the gateway, or append <code>?mock=1</code> to the URL to run
-          the UI without a backend.
+          Start the gateway and retry. The UI talks only to a real
+          gateway — there is no offline / mock mode.
         </p>
         <button
           onClick={onRetry}
@@ -143,14 +134,6 @@ function NoToken() {
           open settings
         </a>
       </div>
-    </div>
-  );
-}
-
-function MockBadge() {
-  return (
-    <div className="pointer-events-none fixed bottom-2 right-2 rounded-md border border-warn/40 bg-[color:var(--warn)]/15 px-2 py-1 font-mono text-[11px] text-[color:var(--warn)]">
-      mock mode · ?mock=1
     </div>
   );
 }

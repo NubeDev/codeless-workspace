@@ -9,7 +9,8 @@ Modeled on [`codeless/ui/codeless-ui/`](../../../codeless/ui/codeless-ui/):
 same conventions (Vite + React 19 + TS + Tailwind v4 + shadcn-style
 primitives, `@/` alias), same single-client pattern. Where codeless
 has `RpcClient`, hackline has `ApiClient` — `HttpApiClient` against
-the real gateway, `MockApiClient` for UI-only dev.
+the real gateway. **No mock client; no `?mock=1` mode.** See the
+no-mock policy below.
 
 ## Develop
 
@@ -20,14 +21,24 @@ pnpm dev                                 # http://localhost:1430
 HACKLINE_GATEWAY_URL=https://hackline.example.com pnpm dev   # remote backend
 ```
 
-UI-only (no gateway needed):
+The UI requires a running gateway. From the hackline root:
 
 ```sh
-pnpm dev
-# then open http://localhost:1430/?mock=1
+make start    # gateway + UI in the background
 ```
 
 `pnpm build` runs `tsc && vite build`.
+
+## No-mock policy
+
+The UI does not ship in-memory fixtures and does not have an offline
+mode. Every page hits the real gateway. If the gateway is down the
+UI shows an honest "cannot reach gateway" screen.
+
+Rationale (see `DOCS/CODEBASE-ANALYSIS.md` and `DOCS/DEVELOPMENT.md`):
+mocks paper over real bugs and let interface drift go unnoticed.
+E2E uses a loopback Zenoh router and a real gateway process; that's
+the only kind of dev/test loop in this repo.
 
 ## Boundary rules
 
@@ -40,8 +51,7 @@ pnpm dev
 
 ## Boot flow
 
-1. `?mock=1` → MockApiClient, app renders immediately.
-2. Otherwise probe `GET /v1/health`.
+1. Probe `GET /v1/health`.
    - unreachable → "cannot reach gateway" screen with retry.
    - reachable + unclaimed → claim screen (SCOPE.md §6.1).
    - reachable + claimed + no token → settings prompt.

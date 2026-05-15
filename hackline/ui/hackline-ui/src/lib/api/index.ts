@@ -9,7 +9,6 @@
 export {
   ApiError,
   HttpApiClient,
-  MockApiClient,
   readBaseUrl,
   readToken,
   writeBaseUrl,

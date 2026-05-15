@@ -17,8 +17,9 @@ import type {
 
 // Single client interface so the UI never knows which transport is in
 // play. Mirrors codeless-ui's `RpcClient` pattern: same component tree
-// works against the real gateway (`HttpApiClient`) or the in-memory
-// fixtures (`MockApiClient`).
+// works against the real gateway. No-mock policy (see `index.ts`):
+// this package ships only real-transport clients; tests use a real
+// loopback gateway, not in-memory fixtures.
 export interface ApiClient {
   baseUrl: string;
   hasToken(): boolean;
