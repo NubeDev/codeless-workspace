@@ -83,6 +83,9 @@ async fn main() -> anyhow::Result<()> {
         msg_bus,
         cmd_notifier,
         metrics: metrics.clone(),
+        rtt_cache: hackline_gateway::rtt_cache::RttCache::new(
+            std::time::Duration::from_secs(1),
+        ),
     };
 
     let listen_addr = cfg.listen.as_deref().unwrap_or("127.0.0.1:8080");

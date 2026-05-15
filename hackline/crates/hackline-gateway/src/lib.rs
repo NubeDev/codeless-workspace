@@ -11,6 +11,7 @@ pub mod events_bus;
 pub mod liveliness;
 pub mod metrics;
 pub mod msg_fanin;
+pub mod rtt_cache;
 pub mod state;
 #[cfg(feature = "tls")]
 pub mod tls;

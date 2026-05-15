@@ -11,6 +11,7 @@ use crate::cmd_delivery::CmdNotifier;
 use crate::db::pool::DbPool;
 use crate::events_bus::MsgBus;
 use crate::metrics::Metrics;
+use crate::rtt_cache::RttCache;
 use crate::tunnel::manager::TunnelEvent;
 
 #[derive(Clone)]
@@ -21,4 +22,5 @@ pub struct AppState {
     pub msg_bus: MsgBus,
     pub cmd_notifier: CmdNotifier,
     pub metrics: Metrics,
+    pub rtt_cache: RttCache,
 }

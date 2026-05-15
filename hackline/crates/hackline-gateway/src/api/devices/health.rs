@@ -10,6 +10,13 @@
 //! round-trip of a single liveliness query against the device's
 //! own `hackline/<org>/<zid>/health` token; null if the probe
 //! times out, errors, or returns no replies.
+//!
+//! The probe result is cached in `state.rtt_cache` for a short
+//! TTL so a burst of polls (admin UI rendering many cards at
+//! once, or React strict-mode double-effects in dev) collapses
+//! into one Zenoh query per device per window. Failed probes
+//! (`None`) are cached too — re-running them costs the full
+//! 250 ms timeout for the same answer.
 
 use std::time::{Duration, Instant};
 
@@ -66,7 +73,15 @@ pub async fn handler(
         None => false,
     };
 
-    let rtt_ms = probe_rtt_ms(&state, &org.slug, &device.zid).await;
+    let cache_key = (org_id, device.id);
+    let rtt_ms = match state.rtt_cache.get(cache_key) {
+        Some(cached) => cached,
+        None => {
+            let measured = probe_rtt_ms(&state, &org.slug, &device.zid).await;
+            state.rtt_cache.put(cache_key, measured);
+            measured
+        }
+    };
 
     Ok(Json(DeviceHealth {
         online,
