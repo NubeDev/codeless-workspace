@@ -344,7 +344,7 @@ The roadmap entry that lands `workspace_mode` is
 Independent of which runner is configured, these rules are
 load-bearing for the long-run constraint:
 
-1. **The stage is the session boundary, not every runner invocation.**
+1. **Sessions reset at autonomous stage advancement, not at every stage end.**
    - *Within a stage* a runner session is continuous. Cost-cap and
      wall-clock-cap mid-stage are **pauses**, not terminations; the
      user stopping a stage to ask a question is a **pause**; a
@@ -358,17 +358,41 @@ load-bearing for the long-run constraint:
      what makes pause / ask / resume / raise-the-cap feel like
      Claude Code instead of an alien tool, and it stops every
      interruption from costing a fresh codebase-exploration.
-   - *Across a stage boundary* the session always resets. The
-     fresh agent re-onboards from the workspace (whichever
-     `workspace_mode` the job chose), the previous stage's
-     `handover.md`, and the repo's `CLAUDE.md` / `CODELESS.md`.
-     This is what keeps context bounded across an 8-hour run —
-     stages bound context; sessions do not have to. A stage's
-     `session_id` is **never** reused by a later stage.
+   - *Autonomous stage advancement resets the session.* When the
+     loop itself promotes stage N → stage N+1 (verify green, no
+     human in the loop), the fresh agent re-onboards from the
+     workspace (whichever `workspace_mode` the job chose), the
+     previous stage's `handover.md`, and the repo's `CLAUDE.md` /
+     `CODELESS.md`. This is what keeps context bounded across an
+     8-hour run — stages bound context; sessions do not have to.
+     A stage's `session_id` is **never** reused by a *later* stage.
+   - *Interactive resumption on a halted, failed, or
+     completed-but-not-promoted stage continues the same session.*
+     If a stage fails verify, hits a review gate, or is stopped by
+     the user, and the user later opens the stage chat and sends
+     a message, the runtime resumes with `--continue <session_id>`
+     against the same conversation. The session is "warm" — the
+     agent already knows what it just tried, what failed, and why.
+     This is the debug-and-fix path; forcing a fresh session here
+     would mean re-deriving five minutes of context the user is
+     trying to act on. The user can opt into a hard reset
+     (**`new session + handover`**) when the conversation has
+     become polluted and a clean re-onboard is cheaper than
+     continuing.
+   - *Idle warm sessions have a timeout.* A warm session held
+     open for interactive resumption costs RAM and (for CLI
+     runners) a subprocess. After `session_idle_timeout` (default:
+     30 min, configurable) the session is archived to disk; the
+     next user message transparently becomes a `new session +
+     handover` against that archive.
    - The user controls stage boundaries (commit + verify gate);
-     codeless does not silently roll the session over. See
-     [`LOOP-CODER.md`](./LOOP-CODER.md) "What blocks this today"
-     for the failure mode the cross-stage reset prevents.
+     codeless does not silently roll the session over from one
+     stage into the next. See [`LOOP-CODER.md`](./LOOP-CODER.md)
+     "What blocks this today" for the failure mode the
+     advancement reset prevents, and [`JOB-UI.md`](./JOB-UI.md)
+     for the UI surfaces (`Stage-N` live chat, `rerun now` vs.
+     `new session + handover`) that expose the warm-session /
+     reset distinction to the user.
 2. **Push after every stage, never defer.** A session that commits
    but doesn't push leaves the next session reading a stale remote.
 3. **A failed verify is operator-visible.** The default behaviour is

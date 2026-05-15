@@ -193,6 +193,7 @@ a successor. You still have to:
 - Multi-repo workflow: [`DOCS/MANI.md`](./DOCS/MANI.md)
 - Active session docs: [`DOCS/sessions/`](./DOCS/sessions/)
 - UI architecture (one codebase, four shells): [`DOCS/UI-ARCHITECTURE.md`](./DOCS/UI-ARCHITECTURE.md)
+- Job page UX (tabs, stage overview, live stage chat): [`DOCS/JOB-UI.md`](./DOCS/JOB-UI.md)
 - UI conversion grind (per-file worklist): [`DOCS/UI-PORT-AUDIT.md`](./DOCS/UI-PORT-AUDIT.md)
 - UI tree: [`codeless/ui/codeless-ui/`](./codeless/ui/codeless-ui/) — Terax-derived React + TS, single source for all four shells
 - Project memory (per-repo): [`codeless/CODELESS.md`](./codeless/CODELESS.md)

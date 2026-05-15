@@ -27,6 +27,9 @@ build/
 # Worktree dirs created by the codeless runtime
 worktrees/
 
+# Local codeless job/run data (runtime-generated, not shared)
+.codeless/
+
 # Secrets / local config
 .env
 .env.*
