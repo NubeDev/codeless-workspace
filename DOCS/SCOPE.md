@@ -1225,6 +1225,56 @@ the `find(s => s.stage.id === stageId-A)` returns `null`; `rollup` stays
 null; the stage content area renders empty. This masks behind Bug 1 when the
 layout is already broken, and surfaces independently once Bug 1 is fixed.
 
+### Module-level state audit (Stage 2)
+
+The job goal flags SSE subscription / chat store / `useJob` cache as suspects.
+A read of `src/lib/rpc/hooks.ts`, `src/lib/rpc/http-sse-client.ts`,
+`src/lib/rpc/provider.tsx`, `src/modules/ai/store/chatStore.ts`, and the
+`JobPage` subtree (`JobPage`, `StagesOverview`, `StageDetail`, `RunPane`,
+`JobChat`) shows that the rpc/SSE/chat-store singletons do **not** cross-
+contaminate two `JobPage` instances. The only true cross-instance singleton
+that does is `window.location` (Bug 2 above).
+
+- **`SHARED_SUBSCRIPTIONS`** — `hooks.ts:237`, a
+  `WeakMap<RpcClient, Map<string, SharedSubscription>>` keyed by
+  `JSON.stringify({ filter, since })`. The filter includes `job_id`, so
+  `JobPage A` (filter `{ scope: "job", job_id: A }`) and `JobPage B`
+  (`job_id: B`) live under distinct map entries with distinct `buffer`,
+  `listeners`, `stateListeners`, `lastStatus`, and `cancel`. Two
+  EventSources, two replay buffers, no shared state. Sharing inside one
+  jobId (e.g. `JobPage` + `StagesOverview` + `JobChat` for the same job all
+  joining the same `(filter, since)` key) is the deliberate connection-
+  pooling design and is correct. **Not the bug.**
+- **`chatStore`** (`src/modules/ai/store/chatStore.ts`) — module-level
+  `chats: Map<sessionId, Chat>`, `seedMessages: Map<sessionId, …>`,
+  `pendingPersist: Map<sessionId, …>`, plus the zustand store. This is the
+  global AI sidebar (Terax-inherited), keyed by AI chat-session id, not
+  job id. `JobChat` in `RunPane.tsx` does **not** route through this store:
+  it owns its own `useState` for history/streaming/liveItems and persists
+  via `read_job_file`/`write_job_file` to `CHAT.md` inside the worktree.
+  Two `JobPage` instances never collide on `chatStore` keys. **Not the
+  bug.**
+- **`useJob`** (`hooks.ts:111`) — no module-level cache. Each call owns its
+  own `useState<QueryState<Job>>` plus a `tick` counter for refetch. Two
+  `JobPage` instances issue two independent `get_job` RPCs and store the
+  results in their own component state. **Not the bug.**
+- **`useRepos` / `useAsyncOnce`** (`hooks.ts:20`) — same shape, per-component
+  state. **Not the bug.**
+- **`HttpSseClient`** (`http-sse-client.ts`) — stateless on the instance;
+  each `subscribeWithState` call constructs a fresh `openManagedSse` closure
+  with its own `EventSource`, stale timer, reconnect timer, cursor, and
+  attempt counter. No module-level mutable state. **Not the bug.**
+- **`window.location.search`** — the real module-level singleton.
+  `JobPage`'s `useState<ActiveTab>` lazy initialiser (`JobPage.tsx:70-90`)
+  reads `new URLSearchParams(window.location.search).get("tab")`
+  unconditionally, both for active and inactive instances. With job A's
+  URL parked at `?tab=stage:<A-stage>`, the freshly mounted (inactive)
+  `JobPage` for job B initialises its own `activeTab` from that A-shaped
+  stage id, asking `StageDetail` to render `jobId=B, stageId=<A-stage>` —
+  the rollup lookup never matches and the content area renders empty.
+  This is the Bug 2 already captured above; it is the only cross-instance
+  module-level state coupling the two pages.
+
 ### Fix direction (for Stage 2+)
 
 - **Bug 1**: add `cn("h-full w-full", t.id !== activeId && "hidden")` to the
