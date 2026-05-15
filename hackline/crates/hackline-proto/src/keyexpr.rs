@@ -27,6 +27,29 @@ pub fn health(org: &str, zid: &Zid) -> String {
     format!("hackline/{org}/{zid}/health")
 }
 
+/// Gateway-side wildcard for liveliness watchers — every org's
+/// every device. Match keys parse with `parse_health_keyexpr`.
+pub const HEALTH_FANIN: &str = "hackline/*/*/health";
+
+/// Parse a concrete health keyexpr `hackline/<org>/<zid>/health`
+/// back into `(org, zid)`. Returns `None` on shape mismatch.
+pub fn parse_health_keyexpr(ke: &str) -> Option<(String, Zid)> {
+    let mut parts = ke.split('/');
+    if parts.next()? != "hackline" {
+        return None;
+    }
+    let org = parts.next()?.to_owned();
+    let zid_raw = parts.next()?;
+    if parts.next()? != "health" {
+        return None;
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    let zid = Zid::new(zid_raw).ok()?;
+    Some((org, zid))
+}
+
 /// `hackline/<org>/<zid>/stream/<request_id>/gw` — gateway → agent data.
 pub fn stream_gw(org: &str, zid: &Zid, request_id: &Uuid) -> String {
     format!("hackline/{org}/{zid}/stream/{request_id}/gw")

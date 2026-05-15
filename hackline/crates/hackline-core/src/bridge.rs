@@ -34,14 +34,17 @@ pub struct BridgeBytes {
 }
 
 /// Agent side: accept a connect query, open a local TCP socket, and
-/// run the byte bridge until either side closes.
+/// run the byte bridge until either side closes. On success returns
+/// the per-stream `request_id` (matched on the gateway side, useful
+/// for diag attribution) and the originating peer address the
+/// gateway captured before issuing the query.
 pub async fn accept_bridge(
     session: &Session,
     org: &str,
     zid: &Zid,
     port: u16,
     query: zenoh::query::Query,
-) -> Result<(), BridgeError> {
+) -> Result<(Uuid, Option<String>), BridgeError> {
     let payload = query
         .payload()
         .map(|p| p.to_bytes().to_vec())
@@ -49,6 +52,7 @@ pub async fn accept_bridge(
     let req: ConnectRequest = serde_json::from_slice(&payload)
         .map_err(hackline_proto::error::ProtoError::Json)?;
     let request_id = req.request_id;
+    let peer = req.peer.clone();
 
     debug!(%request_id, port, "accepting bridge");
 
@@ -85,7 +89,8 @@ pub async fn accept_bridge(
     let ke_from_gw = keyexpr::stream_gw(org, zid, &request_id);
     let ke_to_gw = keyexpr::stream_dev(org, zid, &request_id);
 
-    run_bridge(session, tcp, &ke_from_gw, &ke_to_gw).await.map(|_| ())
+    run_bridge(session, tcp, &ke_from_gw, &ke_to_gw).await?;
+    Ok((request_id, peer))
 }
 
 /// Gateway side: issue a connect query, wait for the ack, and run

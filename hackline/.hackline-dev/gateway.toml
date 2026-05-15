@@ -1,0 +1,10 @@
+listen = "127.0.0.1:8080"
+database = "/home/user/code/rust/codeless-workspace/hackline/.hackline-dev/gateway.db"
+
+[zenoh]
+mode = "peer"
+listen = ["tcp/127.0.0.1:7448"]
+
+[log]
+level = "info,hackline_core=debug,hackline_gateway=debug"
+format = "pretty"

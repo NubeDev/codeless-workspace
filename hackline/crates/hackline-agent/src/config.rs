@@ -25,6 +25,12 @@ pub struct AgentConfig {
     pub zenoh: ZenohConfig,
     #[serde(default)]
     pub log: LogConfig,
+    /// Loopback-only diagnostic UI. Disabled by default — operators
+    /// opt in by setting `[diag] enabled = true`. Bind defaults to
+    /// `127.0.0.1:9999`; non-loopback addresses are rejected at
+    /// startup so the diag surface never reaches the network.
+    #[serde(default)]
+    pub diag: DiagConfig,
 }
 
 fn default_org() -> String { "default".into() }
@@ -61,6 +67,23 @@ impl Default for LogConfig {
 fn default_mode() -> String { "peer".into() }
 fn default_log_level() -> String { "info".into() }
 fn default_log_format() -> String { "pretty".into() }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_diag_bind")]
+    pub bind: String,
+}
+
+impl Default for DiagConfig {
+    fn default() -> Self {
+        Self { enabled: false, bind: default_diag_bind() }
+    }
+}
+
+fn default_diag_bind() -> String { "127.0.0.1:9999".into() }
 
 impl AgentConfig {
     pub fn load(path: &Path) -> Result<Self, AgentError> {

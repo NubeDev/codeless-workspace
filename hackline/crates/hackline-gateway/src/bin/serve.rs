@@ -8,6 +8,7 @@ use hackline_gateway::config::GatewayConfig;
 use hackline_gateway::db::{claim, migrations, pool};
 use hackline_gateway::cmd_delivery::{self, CmdNotifier};
 use hackline_gateway::events_bus::MsgBus;
+use hackline_gateway::liveliness;
 use hackline_gateway::metrics::Metrics;
 use hackline_gateway::msg_fanin;
 use hackline_gateway::state::AppState;
@@ -72,6 +73,8 @@ async fn main() -> anyhow::Result<()> {
         metrics.clone(),
     )
     .await?;
+
+    let _liveliness_handle = liveliness::spawn(session.clone(), db.clone()).await?;
 
     let state = AppState {
         db: db.clone(),

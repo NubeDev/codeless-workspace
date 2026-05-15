@@ -138,7 +138,18 @@ pub async fn run_bridged_connection(
     metrics.dec_tunnel_active(kind);
 
     let (bytes_up, bytes_down, outcome) = match result {
-        Ok(b) => (b.up, b.down, Outcome::Ok),
+        Ok(b) => {
+            // Successful bridge proves the device responded over
+            // Zenoh; treat it as a liveliness ping so `last_seen_at`
+            // reflects bytes-flowed, not just the standalone token.
+            let db = db.clone();
+            let _ = tokio::task::spawn_blocking(move || -> Result<(), GatewayError> {
+                let conn = db.get()?;
+                crate::db::devices::touch_last_seen(&conn, device_id)
+            })
+            .await;
+            (b.up, b.down, Outcome::Ok)
+        }
         Err(e) => {
             warn!(?peer, "bridge error: {e}");
             (0u64, 0u64, Outcome::Error)

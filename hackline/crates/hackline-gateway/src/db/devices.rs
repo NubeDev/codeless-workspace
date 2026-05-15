@@ -146,3 +146,61 @@ fn row_to_device(row: &rusqlite::Row) -> rusqlite::Result<Device> {
         last_seen_at: row.get(6)?,
     })
 }
+
+/// Idempotently register a device by `(org_id, zid)` and stamp
+/// `last_seen_at` with `unixepoch()`. Used by the liveliness fan-in
+/// so an agent that comes online creates its row on the first
+/// observation rather than requiring a manual `POST /v1/devices`.
+/// Returns `(device_id, created)` — `created` is true if a new row
+/// was inserted, false if an existing row was touched.
+pub fn upsert_seen(
+    conn: &Connection,
+    org_id: i64,
+    zid: &str,
+) -> Result<(i64, bool), GatewayError> {
+    use rusqlite::OptionalExtension;
+    let existing: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM devices WHERE org_id = ?1 AND zid = ?2",
+            params![org_id, zid],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    if let Some(id) = existing {
+        conn.execute(
+            "UPDATE devices SET last_seen_at = unixepoch() WHERE id = ?1",
+            params![id],
+        )?;
+        return Ok((id, false));
+    }
+
+    conn.execute(
+        "INSERT INTO devices (org_id, zid, label, created_at, last_seen_at)
+         VALUES (?1, ?2, ?3, unixepoch(), unixepoch())",
+        params![org_id, zid, zid],
+    )?;
+    Ok((conn.last_insert_rowid(), true))
+}
+
+/// Stamp `last_seen_at = unixepoch()` for the given device id. No-op
+/// if the row doesn't exist (the caller already validated existence
+/// via the org-scoped tunnel handler).
+pub fn touch_last_seen(conn: &Connection, id: i64) -> Result<(), GatewayError> {
+    conn.execute(
+        "UPDATE devices SET last_seen_at = unixepoch() WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
+}
+
+/// Clear `last_seen_at` so the device flips to "offline" in the
+/// admin UI when its liveliness token is retracted (Zenoh `Delete`
+/// sample, agent disconnect, or process exit).
+pub fn mark_offline(conn: &Connection, org_id: i64, zid: &str) -> Result<(), GatewayError> {
+    conn.execute(
+        "UPDATE devices SET last_seen_at = NULL WHERE org_id = ?1 AND zid = ?2",
+        params![org_id, zid],
+    )?;
+    Ok(())
+}

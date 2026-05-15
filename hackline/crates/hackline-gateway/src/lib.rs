@@ -8,6 +8,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod events_bus;
+pub mod liveliness;
 pub mod metrics;
 pub mod msg_fanin;
 pub mod state;

@@ -26,3 +26,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Diag UI server (loopback only). axum is already a workspace dep used
+# by hackline-gateway; reusing it here keeps the device binary's dep
+# graph aligned with the gateway's.
+axum = { workspace = true }

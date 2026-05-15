@@ -1105,6 +1105,7 @@ name = "hackline-agent"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "axum",
  "hackline-core",
  "hackline-proto",
  "serde",
