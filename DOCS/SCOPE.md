@@ -624,6 +624,9 @@ Both modes implement the same `Runner` trait; the job template names which runne
 
 ### Helper role — Rig, optional, never gates a job
 
+> Persona / subagent / runner separation, and how chat-side personas extend into job stages without inventing a new template system, is in [`AGENT.md`](./AGENT.md). Personas are *advisory context for a runner* under the rules below — they shape the prompt, they do not become a fourth runner.
+
+
 Independent of which runner drives coding, **Rig** ([0xPlaygrounds/rig](https://github.com/0xPlaygrounds/rig)) powers an optional set of *non-coding* helpers: planning, post-stage review summaries, commit-message generation, job-memory search, cheap-model routing for trivial calls.
 
 #### Why Rig over AutoAgents / ADK-Rust
@@ -1131,6 +1134,106 @@ Notes:
 - **`tasks.depends_on` is JSON, not a join table.** It's read-mostly, the cardinality is tiny (typically 0–3 entries), and a join table would force a multi-row write per task creation. Revisit if/when topological execution lands and we need graph queries.
 - **No down-migrations.** This schema is the base; later migrations are forward-only `ALTER`s.
 - **Vendor-locked to SQLite syntax** (e.g. `INTEGER PRIMARY KEY AUTOINCREMENT`). Phase 7's Postgres rewrite is a translation pass, not a schema port.
+
+## Reproduction — second job-detail tab right-pane blank (S)
+
+### Steps to reproduce
+
+1. Open any job → a job-detail tab mounts; job A's `JobPage` becomes active.
+2. Navigate to a stage tab inside job A (e.g. click Stage 1 in the overview). The URL
+   updates to `?tab=stage:<stageId-A>`.
+3. Open a second job from the dashboard. A second job-detail tab appears;
+   job B's `JobPage` mounts (inactive, hidden via Tailwind `hidden` class on
+   its own root div).
+4. Switch to job B's tab. Job A's `JobPage` root div becomes `display: none`
+   (via `!active && "hidden"`). Job B's root div becomes visible.
+5. **Observed**: job B's right pane is blank. No content visible. Switching
+   back and forth between the tabs leaves job B always blank.
+
+### Which pane is blank
+
+The entire main content area of the second job-detail tab — tab bar renders,
+page header renders, but the panel below the tab bar (where CHAT / SPEC /
+Stages / StageDetail content would appear) shows nothing.
+
+### Console errors
+
+None. Both bugs identified below fail silently: the CSS layout issue is
+purely visual; the URL-pollution issue causes a silent `null` from `Array.find`.
+
+### Network / SSE state
+
+- Two independent SSE connections are established, one per job (correctly keyed
+  by `{ scope: "job", job_id: <id> }` in `joinSubscription`). Both are `live`.
+- All HTTP RPC calls use the correct `job_id`. No failed network requests appear.
+- The `list_stages` POST for job B returns HTTP 200 with job B's stages; the
+  UI silently discards the result because it looks up the wrong `stageId`.
+
+### Root cause — two bugs, one symptom
+
+#### Bug 1 (primary) — `JobDetailStack` outer wrapper not hidden for inactive tabs
+
+**File**: `src/modules/jobs/JobDetailStack.tsx`
+
+```tsx
+{jobTabs.map((t) => (
+  <div key={t.id} className="h-full w-full">   // ← never hidden
+    <JobPage jobId={t.jobId} active={t.id === activeId} />
+  </div>
+))}
+```
+
+`JobDetailStack` is mounted inside `<div className="absolute inset-0">` in
+`App.tsx` (~line 970). The absolute container has a definite height. Each
+outer wrapper div carries `h-full` (= `height: 100%`), which is an explicit
+CSS property — the browser assigns the full height to the element regardless
+of whether its child has `display: none`.
+
+With two job tabs open:
+
+- Wrapper div 1 (job A): `height: 100%` — occupies the top 100 % of the
+  visible area. Child `JobPage` has `display: none` when job B is active, but
+  that doesn't collapse the wrapper's layout footprint.
+- Wrapper div 2 (job B): `height: 100%` — starts at 100 % of the visible
+  area (below div 1) → entirely off-screen.
+
+Result: the active job B is rendered but scrolled below the viewport. The user
+sees a blank pane.
+
+#### Bug 2 (secondary) — `JobPage` initialises `activeTab` from shared `window.location.search`
+
+**File**: `src/modules/jobs/JobPage.tsx`, `useState` lazy initialiser (~line 70)
+
+```ts
+const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+  const param = new URLSearchParams(window.location.search).get("tab");
+  if (param?.startsWith("stage:")) {
+    const stageId = param.slice("stage:".length);
+    return { kind: "stage", stageId, stageName: stageId, pinned: false };
+  }
+  ...
+});
+```
+
+`window.location.search` is a process-wide singleton shared by all mounted
+`JobPage` instances. When job A navigates to `?tab=stage:<stageId-A>`, then
+job B's `JobPage` mounts (inactive), it reads the URL and initialises its own
+`activeTab` as `{ kind: "stage", stageId: "<stageId-A>", ... }`. When the
+user switches to job B, `StageDetail` is rendered with
+`jobId=B, stageId=<stageId-A>`. The `list_stages` call returns job B's stages;
+the `find(s => s.stage.id === stageId-A)` returns `null`; `rollup` stays
+null; the stage content area renders empty. This masks behind Bug 1 when the
+layout is already broken, and surfaces independently once Bug 1 is fixed.
+
+### Fix direction (for Stage 2+)
+
+- **Bug 1**: add `cn("h-full w-full", t.id !== activeId && "hidden")` to the
+  outer wrapper div in `JobDetailStack`. `hidden` = `display: none` keeps the
+  React tree (and SSE subscription) mounted while removing the layout
+  footprint.
+- **Bug 2**: guard the `useState` initialiser with `if (active)` — inactive
+  `JobPage` instances should not read the URL. Only the active page at any
+  moment owns `window.location.search`.
 
 ## Out of scope (for now)
 
