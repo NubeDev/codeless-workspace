@@ -11,6 +11,8 @@ use crate::error::ProtoError;
 
 /// A validated Zenoh device identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "specta", specta(transparent))]
 #[serde(try_from = "String", into = "String")]
 pub struct Zid(String);
 

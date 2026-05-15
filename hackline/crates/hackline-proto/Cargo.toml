@@ -10,8 +10,34 @@ description = "Wire types and key-expression builders for hackline"
 [lints]
 workspace = true
 
+[features]
+default = []
+# Codegen-only: derives `specta::Type` on every wire type so the
+# `tests/specta_snapshot.rs` test and `examples/wire_ts.rs` binary can
+# emit TypeScript. Default builds (mobile/agent/gateway) skip the
+# extra dep entirely.
+specta = ["dep:specta"]
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
+specta = { workspace = true, optional = true }
+
+[dev-dependencies]
+specta = { workspace = true }
+specta-typescript = { workspace = true }
+
+# The TS codegen test and example need the optional `specta` feature
+# enabled to see the `specta::Type` derives. Without `required-features`
+# a default-feature `cargo test --workspace` would try to build them
+# and fail; with it, the targets are only compiled when the feature is
+# explicitly requested (`cargo test --features specta`).
+[[test]]
+name = "specta_snapshot"
+required-features = ["specta"]
+
+[[example]]
+name = "wire_ts"
+required-features = ["specta"]

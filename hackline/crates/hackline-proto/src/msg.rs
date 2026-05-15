@@ -39,6 +39,7 @@ pub const HEADER_LOG_LEVEL: &str = "level";
 
 /// Five-level log severity. Lowercase string on the wire and in DB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     Trace,
@@ -125,6 +126,7 @@ pub struct CmdEnvelope {
 /// `hackline/<zid>/msg/cmd-ack/<cmd_id>` after the device's handler
 /// finishes (or rejects) the command.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct CmdAck {
     pub cmd_id: Uuid,
     pub result: CmdResult,
@@ -134,6 +136,7 @@ pub struct CmdAck {
 
 /// Outcome reported by the device-side cmd handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]
 pub enum CmdResult {
     Accepted,

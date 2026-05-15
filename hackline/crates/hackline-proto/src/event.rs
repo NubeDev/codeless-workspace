@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub const CLOSE_SENTINEL: &[u8] = b"";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
     DeviceOnline { device_id: i64 },
