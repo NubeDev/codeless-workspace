@@ -17,8 +17,8 @@ Goal:        a user can chat at `/assistant` (or from the footer
 4. [ ] [S] F3 — add `jobs.draftFromConversation(thread_id)` and `jobs.updateScope(job_id, new_markdown)` to `codeless-rpc::RpcServer`; wire to existing `submit_job` / `write_job_file` paths and enforce the paused-job rule on `updateScope`.
 5. [ ] [S] F3 — route confirmed `draft_job` and `edit_scope` cards through the two new methods (replacing the inline `submit_job`/`write_job_file` calls in `dispatch_action`).
 6. [ ] [S] F3 — `MockRunner` dispatch tests + reject-on-running-job test + round-trip test that a confirmed `start` card calls `start_job` exactly once.
-7. [ ] [M] F1 — drive `AiInputBar` from the current assistant thread (last-used or pinned); messages sent from the footer appear in `/assistant`'s transcript on next render.
-8. [ ] [S] F1 — collapse `useChatStore` message ownership: either retire it or shrink to UI presentation state (scroll, composer draft) so SQLite stays the only source of truth.
+7. [x] [M] F1 — drive `AiInputBar` from the current assistant thread (last-used or pinned); messages sent from the footer appear in `/assistant`'s transcript on next render.
+8. [x] [S] F1 — collapse `useChatStore` message ownership: either retire it or shrink to UI presentation state (scroll, composer draft) so SQLite stays the only source of truth.
 9. [ ] [S] Tighten: run `cargo test --workspace`, clippy, fmt; `tsc --noEmit` + vitest in `ui/codeless-ui`; regenerate wire types if any RPC arg shape changed.
 
 ## Stage 1 — survey notes
@@ -135,8 +135,63 @@ dispatcher didn't exist.
    F2 design before we hard-code `current_dir` → `workspace_root`
    resolution in `codeless-cli`.
 
+## Stages 7-8 — F1 footer rewire notes
+
+The footer composer in `app/App.tsx` was rebuilt around a new
+`AssistantFooterBar` component (`modules/assistant/AssistantFooterBar.tsx`).
+Key choices:
+
+- **Focus pointer in a tiny zustand store** (`modules/assistant/focusStore.ts`,
+  `useAssistantFocus`). Persists `currentThreadId` to localStorage so a
+  reload re-binds the footer to the last thread; the `/assistant` rail
+  writes the same store when its selection changes. SQLite stays the
+  source of truth — the store only holds the pointer + a `refreshTick`
+  used as a re-fetch signal in lieu of a per-thread subscription
+  channel (open question §2 — still deferred). When the planner gets a
+  proper streamed subscribe path (future revision), `refreshTick`
+  retires; until then it covers the latency between a footer submit
+  and the rail re-list.
+- **No third chat surface.** The footer reads / writes via the existing
+  `assistant.*` RPCs (`append_assistant_message`, `create_assistant_thread`,
+  `list_assistant_messages`). `AssistantThreadView` and the new footer
+  both render off SQLite; they share data via `list_assistant_messages`
+  + `refreshTick`, not a footer-local buffer.
+- **`useChatStore` shrunk to UI-presentation slots** (panel-open flag,
+  focus signal, composer draft prefill, selection bridge). Its
+  `Chat<UIMessage>` / per-token persistence machinery survives only
+  because the in-editor `AiMiniWindow` has not been folded into the
+  assistant yet — that's a future revision the spec calls out
+  ("the in-editor AI chat surface and the assistant become the same
+  thing"). The footer no longer touches `getOrCreateChat`,
+  `activeSessionId`, or `sendMessage`; a top-of-file comment on
+  `chatStore.ts` documents the narrowed scope.
+- **Action cards stay on `/assistant`.** The footer renders a compact
+  "N pending actions — review and confirm in /assistant" affordance
+  when `list_assistant_messages` returns at least one pending card on
+  the bound thread; clicking it focuses the `/assistant` tab via the
+  existing `newAssistantTab()` route. Full-width card rendering
+  (draft preview, scope diff) only happens on the assistant page —
+  the footer is for input + short responses.
+- **API-key gate dropped from `togglePanelAndFocus`.** The assistant
+  runs server-side via the planner, so a keyless user can still open
+  the footer. The `<AgentRunBridge>` / `<AiMiniWindow>` gates remain
+  because those drive the in-editor browser-side SDK transport.
+
+Out of scope for stage 8 (intentional, follow-up):
+
+- Wiring file-attachments, snippet picker, slash commands, voice
+  capture, and selection ingestion into the footer. The previous
+  `AiInputBar` had all of these glued to the chatStore-backed composer;
+  re-plumbing them through `upload_assistant_attachment` + the
+  assistant planner is a larger change and was not blocking the F1
+  "messages go to one source of truth" goal.
+- Folding `AiMiniWindow` into the assistant. The mini-window remains a
+  chatStore-driven mini panel; the spec's "two places, same thing"
+  end state requires this collapse, but it's a separate refactor
+  (the mini-window has its own SDK transport, todo strip,
+  approval bridge — none of which is in the assistant runner yet).
+
 ## How to continue
 
-A fresh session picks up stage 2 (F2 planner). Read this file's stage
-list first; the open questions above are the load-bearing decisions
-F2's design has to make in its first commit.
+A fresh session picks up stage 9 (tighten — cargo test, clippy, fmt,
+tsc, vitest, regenerate wire types if needed). Stages 2-8 are done.
