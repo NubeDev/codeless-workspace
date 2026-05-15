@@ -5,21 +5,37 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState, ErrorBox, PageBody, PageHeader } from "@/components/PageChrome";
 import { useApi } from "@/lib/api";
-import type { Device } from "@/lib/api";
+import type { Device, DeviceHealthEntry } from "@/lib/api";
 import { navigate } from "@/lib/route";
 import { relTime, shortId } from "@/lib/utils";
+
+// Cadence for the in-page health refresh. Picked to track
+// liveliness changes within human-noticeable time without making
+// the per-row RTT cache (1 s TTL, see goal 27) miss too often:
+// at 5 s the cache hits ~80% in steady state.
+const HEALTH_POLL_MS = 5_000;
 
 export function DevicesPage() {
   const api = useApi();
   const [devices, setDevices] = useState<Device[] | null>(null);
+  const [health, setHealth] = useState<Map<number, DeviceHealthEntry> | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [creating, setCreating] = useState(false);
   const [zid, setZid] = useState("");
   const [label, setLabel] = useState("");
 
+  // The two reads have no dependency on each other and the page is
+  // useless without both, so fan them out and resolve into a single
+  // state pair. This avoids a "list visible, dots loading" flash
+  // and keeps the error path single-handler.
   const refresh = async () => {
     try {
-      setDevices(await api.listDevices());
+      const [list, healthList] = await Promise.all([
+        api.listDevices(),
+        api.getDevicesHealth(),
+      ]);
+      setDevices(list);
+      setHealth(new Map(healthList.map((h) => [h.device_id, h])));
       setError(null);
     } catch (e) {
       setError(e);
@@ -28,6 +44,10 @@ export function DevicesPage() {
 
   useEffect(() => {
     void refresh();
+    const id = window.setInterval(() => {
+      void refresh();
+    }, HEALTH_POLL_MS);
+    return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -104,29 +124,46 @@ export function DevicesPage() {
                   <th className="px-3 py-2 text-left font-medium">Label</th>
                   <th className="px-3 py-2 text-left font-medium">ZID</th>
                   <th className="px-3 py-2 text-left font-medium">Class</th>
+                  <th className="px-3 py-2 text-left font-medium">RTT</th>
                   <th className="px-3 py-2 text-left font-medium">Last seen</th>
                 </tr>
               </thead>
               <tbody>
-                {devices.map((d) => (
-                  <tr
-                    key={d.id}
-                    className="cursor-pointer border-t hover:bg-accent/40"
-                    onClick={() => navigate({ name: "device", id: d.id })}
-                  >
-                    <td className="px-3 py-2">
-                      <Badge variant={d.online ? "ok" : "err"}>
-                        {d.online ? "online" : "offline"}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2">{d.label ?? <span className="text-muted-foreground">—</span>}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{shortId(d.zid, 14)}</td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{d.class}</td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">
-                      {relTime(d.last_seen_at)}
-                    </td>
-                  </tr>
-                ))}
+                {devices.map((d) => {
+                  // `health` is null until the first refresh resolves;
+                  // showing "offline" before then would be a lie (the
+                  // device might be perfectly online). The neutral
+                  // placeholder distinguishes loading from offline,
+                  // which matters because offline is the actionable
+                  // state.
+                  const h = health?.get(d.id);
+                  return (
+                    <tr
+                      key={d.id}
+                      className="cursor-pointer border-t hover:bg-accent/40"
+                      onClick={() => navigate({ name: "device", id: d.id })}
+                    >
+                      <td className="px-3 py-2">
+                        {h == null ? (
+                          <Badge variant="outline">—</Badge>
+                        ) : (
+                          <Badge variant={h.online ? "ok" : "err"}>
+                            {h.online ? "online" : "offline"}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">{d.label ?? <span className="text-muted-foreground">—</span>}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{shortId(d.zid, 14)}</td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">{d.class}</td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {h?.online && h.rtt_ms != null ? `${h.rtt_ms} ms` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {relTime(d.last_seen_at)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
