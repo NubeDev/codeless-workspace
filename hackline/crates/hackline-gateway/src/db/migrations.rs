@@ -26,6 +26,16 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
         "V005__orgs",
         include_str!("../../migrations/V005__orgs.sql"),
     ),
+    (
+        6,
+        "V006__audit_tunnel_session_ts_seconds",
+        include_str!("../../migrations/V006__audit_tunnel_session_ts_seconds.sql"),
+    ),
+    (
+        7,
+        "V007__audit_fks_on_delete_set_null",
+        include_str!("../../migrations/V007__audit_fks_on_delete_set_null.sql"),
+    ),
 ];
 
 pub fn run(conn: &Connection) -> Result<(), crate::error::GatewayError> {

@@ -248,30 +248,57 @@ crates/codeless-xtask/src/check_handler_instrumentation.rs
                               # predicate that enforces it
 ```
 
-A SCOPE patch can propose three kinds of change:
+A SCOPE patch can propose four kinds of change. Each direction has a
+matching falsifiability requirement; without it, the AI takes the
+unfalsifiable path every time.
 
-1. **Prose-only.** "Tighten the wording of rule R." Cheap, but the
-   rule still rots — nothing automatically checks it.
-2. **Prose + new predicate.** "Tighten rule R *and* add this
-   predicate that makes it falsifiable." The predicate ships as code
-   in the same patch and runs forever after.
-3. **Predicate-only.** "Existing rule R is fine; we just never had
-   a check for it. Here's one." Pure Layer-1 hardening, no rule
-   change.
+1. **Add a rule (prose-only).** "There should be a rule R about X."
+   Adding a brand-new rule is allowed prose-only because a new rule
+   cannot cascade — no prior stage was relying on it. The patch must
+   still cite an evidence stage that motivates the rule.
+2. **Tighten a rule (prose + predicate).** "Rule R was followed in
+   spirit but the wording let the worker drift; tighten it to R'."
+   Must ship either a new predicate or a reference to an existing
+   predicate it sharpens. **Tightening without a predicate is
+   rejected at parse.**
+3. **Loosen a rule (prose + counter-evidence).** "Rule R is over-broad;
+   loosen it to R'." Must cite an evidence stage where a *legitimate*
+   change was blocked by the current rule, *and* must add a
+   positive-case fixture to the predicate's tests showing the new
+   behaviour now passes. **Loosening without a positive fixture is
+   rejected at parse.** This is the symmetric guard against the AI
+   discovering "loosen the rule" as the easy path out of every
+   contested predicate.
+4. **Enforce an unchecked rule (predicate-only).** "Existing rule R
+   is fine; we just never had a check for it. Here's one." Pure
+   Layer-1 hardening, no wording change.
 
-The patch parser refuses to accept a "tighten this rule" proposal
-without either (a) an existing predicate it sharpens or (b) a new
-predicate it adds. This is the structural answer to the doc's own
-risk section: a REVIEW stage cannot hallucinate a rule into existence
-if the patch has to ship with an executable check the next stage
-will run against the live tree. Hallucinated predicates fail
-immediately, on the next CI run, in code — not in vibes weeks later.
+The two parse-rejections are the load-bearing structural rules:
 
-This is also what makes mutable-SCOPE worth shipping rather than
-just doing tighter prose. Prose-only patches accumulate; predicate
+- *Tightening requires a predicate* prevents hallucinated rules from
+  landing — the predicate fails on the next CI run if the rule is
+  fiction.
+- *Loosening requires a positive fixture* prevents the easy escape
+  hatch from every contested predicate — the AI cannot quietly
+  defang Layer 1 by repeatedly loosening rules that work.
+
+This is what makes mutable-SCOPE worth shipping rather than just
+doing tighter prose. Prose-only patches accumulate; predicate
 patches *compound* — every approved patch leaves the runtime
 strictly more capable of catching its own class of drift, with no
 ongoing token cost.
+
+### One patch per REVIEW stage
+
+By parser fiat: a single REVIEW stage emits at most one structured
+patch. A stage that genuinely surfaces multiple drift signals must
+pick one and drop the rest; the dropped observations are visible in
+the REVIEW transcript but do not become patches.
+
+The cost is real (information loss). The win is bounded patch volume:
+patch throughput is capped at `stages/day`, not `stages/day × n`,
+which is what keeps the human editor's workload tractable. Without
+this cap, every "and also we noticed X" multiplies the queue.
 
 ### How patches earn their layer
 
@@ -286,6 +313,35 @@ status. Over time, the rulebook stratifies: rules with predicates are
 load-bearing; rules without are advisory. That stratification is the
 artefact — it tells a new agent which rules are *really* enforced and
 which are still aspirational.
+
+## What is mutable, what is not
+
+The mutable rulebook is not the same set as "all files in `DOCS/`."
+Treating it that way is the most plausible way to break the user
+contract by accident.
+
+**Mutable on REVIEW-patch terms:**
+
+- `DOCS/SCOPE.md` — product scope, what Codeless is.
+- `DOCS/CLAUDE.md` — agent rules, how to work here.
+- Predicate files under the predicate-runner crate.
+
+**Not mutable — wire formats, changed only by explicit versioning:**
+
+- `DOCS/JOB-MODEL.md` — the user-facing job / handover contract.
+  External tooling, user habits, and the runtime's parser all
+  couple to its shape. A REVIEW stage that "tightens" the handover
+  schema can break every prior job's stored handover silently.
+- `DOCS/JOB-LOOP.md` — the tick procedure CLAUDE.md leans on. A
+  drift here corrupts the loop itself.
+- `codeless-types/src/handover.rs` and any other wire type. These
+  change via `schema_version` bumps and migrations, never via
+  REVIEW patches.
+
+The split is enforceable: the patch parser knows the mutable set; a
+patch whose `target_file` is outside the mutable set is rejected at
+parse, no model invoked. Wire formats stay sacred; rulebooks
+compound.
 
 ## Why this is the shake-up
 
@@ -338,37 +394,40 @@ if you ignore it.
 
 Mitigations, in order of how much they cost:
 
-1. **Tightening patches must ship a predicate** (Layer 1). A patch
-   that proposes new restrictive wording must include either a new
-   predicate or a reference to an existing predicate it sharpens.
-   This is the structural answer: a hallucinated rule cannot land
-   because its predicate would fail immediately against the live
-   tree. Predicates fail loudly in CI; vibes do not.
-2. **Patches do not auto-apply** (Layer 2). REVIEW writes proposals
-   to `DOCS/SCOPE-PROPOSED.md`. A human approves them in batches,
-   on whatever cadence. Reviewing a 3-line diff plus a 20-line
-   predicate is a fundamentally smaller job than authoring rules
-   from scratch.
-3. **Patches must cite evidence** (Layer 1, parse-time). A SCOPE
-   patch with no `evidence_stage_id` is rejected at parse. A patch
-   citing an evidence stage whose diff does not contain the cited
-   behaviour is rejected. Abstract "rules should be tighter"
-   patches are impossible to express.
-4. **Patches are reversible.** They are commits. If a patch turns
+1. **Tightening patches must ship a predicate** (Layer 1, parse-time).
+   A hallucinated rule cannot land because its predicate would fail
+   immediately against the live tree. Predicates fail loudly in CI;
+   vibes do not.
+2. **Loosening patches must ship a positive fixture** (Layer 1,
+   parse-time). Symmetric to the tightening guard. Closes the easy
+   path where the AI defangs Layer 1 by repeatedly loosening rules
+   that work. Without this, "the rule is wrong" is unfalsifiable in
+   the same way "the rule should be tighter" would be without the
+   tightening guard.
+3. **One patch per REVIEW stage** (Layer 1, parse-time). Bounds
+   patch volume at `stages/day`. Without this, a single REVIEW
+   stage can saturate the human approval queue.
+4. **Patches do not auto-apply, ever** (Layer 2). REVIEW writes
+   proposals to `DOCS/SCOPE-PROPOSED.md`. A human approves them in
+   batches. There is no auto-merge mode — see the ramp's
+   "deliberately not included" section for why.
+5. **Patches must cite evidence** (Layer 1, parse-time). A patch
+   with no `evidence_stage_id` is rejected. A patch citing an
+   evidence stage whose diff does not contain the cited behaviour
+   is rejected. Abstract "rules should be tighter" patches are
+   impossible to express.
+6. **Patches are reversible.** They are commits. If a patch turns
    out wrong, revert. The runtime can correlate "stages started
    failing after SCOPE@\<sha\>" and surface that as a signal — the
    rulebook itself is subject to the gate it enforces.
-5. **Auto-merge is a config flag, not a refactor.** And auto-merge
-   is itself gated by Layer 1: a patch whose predicate is failing
-   on trunk cannot auto-merge, no matter what the AI proposed or
-   how long the delay window has elapsed.
 
 Note how the layering reshapes the risk: in a pure-AI version of
 this doc, every mitigation is procedural (humans review, evidence
-cited, reversible). With Layer 1 holding the line at the bottom, a
-bad patch is a CI-red commit, not a slow-rotting rulebook. That is
-the difference between "we manage the risk" and "the risk has a
-deterministic floor."
+cited, reversible). With Layer 1 holding the line at the bottom —
+*and on both directions*, tightening and loosening — a bad patch is
+a parse rejection or a CI-red commit, not a slow-rotting rulebook.
+That is the difference between "we manage the risk" and "the risk
+has a deterministic floor on both sides."
 
 ## What ships, in order
 
@@ -397,9 +456,29 @@ of the runtime work below is needed.
 ### Step 1 — REVIEW as a real stage type (Layer 1)
 
 PASS/FAIL only. No SCOPE patch output yet. The template runner gates
-advancement on REVIEW passing. WORK stages cannot touch
-`DOCS/SCOPE.md` — runtime enforces. This alone is most of the value
-of the prior doc's entire P-section.
+advancement on REVIEW passing.
+
+Two file-set rules land in Layer 1 here:
+
+- **WORK stages cannot touch any rule-bearing file.** The list lives
+  in `codeless-runtime` config: `DOCS/SCOPE.md`, `DOCS/CLAUDE.md`,
+  `DOCS/JOB-MODEL.md`, `DOCS/JOB-LOOP.md`, and any predicate file
+  under the predicate-runner crate. WORK touching any of these fails
+  the commit, runtime-enforced.
+- **REVIEW patches can target only the *mutable* subset of those.**
+  Mutable: `DOCS/SCOPE.md`, `DOCS/CLAUDE.md`, predicate files.
+  Not mutable: `DOCS/JOB-MODEL.md`, `DOCS/JOB-LOOP.md`, the handover
+  schema in `codeless-types/src/handover.rs`. Those are the
+  user-facing wire format — they change via explicit versioning,
+  not via REVIEW-stage patches (see "What is mutable, what is
+  not" below).
+
+Note on naming: `Event::ReviewRequested` already exists in the
+runtime today as an advisory event emitted by REVIEW-prefixed
+stages. The blocking-gate REVIEW stage proposed here either replaces
+that event's semantics or needs a distinct name (`Event::ReviewGate*`).
+Decide before step 1 lands; do not let two REVIEW concepts coexist
+silently.
 
 ### Step 2 — Diff-verify pre-check (Layer 1)
 
@@ -430,17 +509,23 @@ calibration phase: read the proposals, decide whether they are
 useful. **Kill criterion: if more than 60% are noise after four
 weeks, abandon the auto-proposal path** and keep only steps 0–3.
 
-### Step 5 — Patches must ship with predicates when they tighten rules (Layer 3 → Layer 1)
+### Step 5 — Patch shape rules enforced at parse (Layer 1 over Layer 3)
 
-The structural guard against rule-drift-cascade. A patch that proposes
-new wording must either reference an existing predicate it sharpens
-or include a new predicate it adds. Prose-only patches are allowed
-only for *adding* rules or *loosening* rules, never for tightening.
+The structural guards from "Executable predicates: the bridge" land
+in the parser:
 
-This is the step that turns mutable-SCOPE from "vibes ratcheting prose"
-into "compounding executable rulebook." It is also the step that makes
-the risk section actually small: a hallucinated rule cannot land
-because the new predicate would fail on the next CI run.
+- Tightening patches must ship a predicate (or reference one they
+  sharpen).
+- Loosening patches must add a positive fixture to the predicate's
+  tests *and* cite an evidence stage where legitimate code was
+  blocked.
+- One patch per REVIEW stage.
+
+This is the step that turns mutable-SCOPE from "vibes ratcheting
+prose" into "compounding executable rulebook." It is also the step
+that makes the risk section actually small: hallucinated rules can't
+land (failing predicate), AI can't quietly defang Layer 1 by
+loosening (missing positive fixture), and patch volume is bounded.
 
 ### Step 6 — Patch approval UX (Layer 2)
 
@@ -449,19 +534,10 @@ approve / reject / edit. Approved patches land as normal commits,
 authored by the human, with the evidence stage cited in the commit
 body. The predicate files land in the same commit.
 
-### Step 7 — TEST stages propose patches too (Layer 3)
-
-Same shape as REVIEW. A test failure that reveals an unnamed
-invariant produces a patch proposal (preferably with a predicate
-derived from the failing assertion). A flaky test is a stage FAIL,
-not a patch source.
-
-### Step 8 — Auto-merge with delay (Layer 1 gate over Layer 3 output)
-
-Only if steps 4–7 have produced a high-signal patch stream. Config
-flag. Patches auto-merge after a window (e.g. 24h), kill-switch
-available. A patch whose predicate is failing on trunk *cannot*
-auto-merge — Rust gates the AI's own output.
+The ramp ends here. The two further steps the earlier draft listed
+(TEST stages emitting patches; auto-merge after a delay window) are
+deliberately dropped — see "What this ramp deliberately does not
+include" below.
 
 ### Stopping points
 
@@ -470,14 +546,99 @@ auto-merge — Rust gates the AI's own output.
   prior doc's P-section value.
 - Stop at step 3: you have shipped executable rules. The rulebook
   has teeth even without mutability.
-- Stop at step 5: you have shipped a *compounding* rulebook. Every
-  approved patch leaves the runtime strictly more capable.
-- Reach step 8: you have shipped a self-sharpening rulebook with
-  Rust guards over the AI's proposals.
+- Stop at step 5: parse-time guards are in place. Even if step 6
+  slips, proposed patches are well-shaped enough to read in a flat
+  markdown file.
+- Reach step 6: you have shipped a *compounding* rulebook with a
+  human-in-the-loop approval gate. The system is sustainable here.
 
-Each stopping point is a win. The ordering is deliberate: the cheap
-wins land first, the expensive judgement work earns its keep against
-a baseline that already catches the easy stuff.
+Each stopping point is a win. Step 5 is where the cascade risk
+becomes structurally bounded; step 6 is where the human's editor
+role becomes ergonomic. The earlier draft's ambition to reach
+"self-modifying without supervision" has been intentionally trimmed.
+
+### What this ramp deliberately does not include
+
+- **TEST stages proposing patches.** A failing test tells you exactly
+  one thing: this assertion did not hold under these inputs. The leap
+  from there to "and the underlying invariant deserves a project-wide
+  rule" is unbounded inference under the most ambiguous evidence the
+  system ever sees. Realistic failure mode: a property test catches
+  an off-by-one in a date helper; TEST proposes "all date arithmetic
+  must use UTC" with a `grep chrono::Local` predicate; predicate
+  passes on trunk (nothing currently uses it); rule lands; three
+  months later a legitimate timezone-aware feature can't ship without
+  fighting it. TEST stages flag failures for *human triage*; humans
+  decide whether the failure surfaces a rule gap. The "rulebook
+  compounds" property comes from REVIEW + predicate, not TEST +
+  predicate.
+- **Auto-merge with a delay window.** Predicate-passes-on-trunk is
+  necessary, not sufficient. It does not catch rule-scope mistakes
+  (rule applies project-wide but evidence was domain-specific),
+  ambiguous wording that future REVIEW stages will enforce
+  inconsistently, or emergent overconstraint (each rule individually
+  fine, the set is not). None of these surface inside a 24h window;
+  they surface at the next contested WORK stage. A "kill-switch
+  available" disclaimer is doing more work than it can — by the time
+  you flip it, you have absorbed a week of unreviewed rule changes.
+  If steps 4–6 succeed and patch volume is low, the marginal cost of
+  the human clicking *approve* is small. If patch volume is high
+  enough that auto-merge would help, that itself is the signal that
+  the patches are not high enough signal to merge unattended.
+
+These two omissions are the line between this product and a different,
+strictly more dangerous product. Crossing the line is an explicit
+re-decision, not a continuation of this ramp.
+
+## What lands where in the codebase
+
+The "reuses what exists" claim is only auditable if you can point at
+the files. The touch points, grounded against the current crate
+layout:
+
+- [`template_runner.rs`](../codeless/crates/codeless-runtime/src/template_runner.rs)
+  gets the new stage type and the Layer-1 pre-check phase
+  (diff-verify + predicate runner). This is where steps 1–3 of the
+  ramp land. The advancement gate keys off the PASS/FAIL sentinel.
+- [`handover.rs`](../codeless/crates/codeless-types/src/handover.rs)
+  does *not* change. Patches are not handover. A new wire type
+  `ScopePatch` lives next to it in `codeless-types`, mobile-safe,
+  no process spawn.
+- The patch parser lives in `codeless-runtime` (parses the structured
+  patch out of REVIEW output, applies the mutable-set / shape-rule
+  checks). Pure Rust, no model.
+- The predicate runner is a new crate — likely `codeless-xtask` or
+  a sibling — that depends on `codeless-adapters-host` transitively
+  for shell-out probes. **Unreachable from the mobile build** per
+  R1 (crate dependency direction). Predicate files live under that
+  crate.
+- The proposed-patch queue is a plain file in the user's repo at
+  `DOCS/SCOPE-PROPOSED.md`. No new runtime data path. Committed and
+  versioned like any other doc.
+- The mutable-set / wire-format-set lists live in
+  `codeless-runtime` config — small static lists, not user-editable
+  at runtime.
+- **Auth / R5: unchanged.** The runtime that writes
+  `SCOPE-PROPOSED.md` is the same runtime that writes `handover.md`.
+  Same bearer-token trust boundary, same single-tenant model. No
+  new permissions, no new trust surface — calling this out so
+  reviewers do not have to reverse-engineer it.
+
+## Dependencies on the prior doc that do not collapse into this one
+
+The prior doc's P-section collapses into "REVIEW is a stage." Its
+H-section does *not* collapse — those are correctness gaps in the
+handover system that exist independently of whether SCOPE becomes
+mutable:
+
+- H1 (per-stage handover, not just per-job).
+- H3 (keyed handover discovery, not mtime-ranked).
+- H7 (write-time validation: non-empty `done` / `next`).
+
+The peer-review gate proposed here can be built on top of the
+mtime-based handover discovery the runtime has today, but it is
+strictly more brittle until H1 / H3 / H7 land. Ship them in the same
+window as steps 0–2 of this ramp, not after.
 
 ## What this doc deliberately does not address
 
@@ -493,6 +654,8 @@ a baseline that already catches the easy stuff.
 - **Multi-tenant, per-user permissions, audit logs for compliance.**
   R5 (single-tenant trust boundary) still holds. The mutable
   rulebook does not change the trust model.
+- **TEST stages proposing patches; auto-merge.** Covered in the
+  ramp's "deliberately not included" section, with reasoning.
 
 ## Open questions worth fighting about
 
@@ -513,9 +676,6 @@ a baseline that already catches the easy stuff.
   newly-added predicate, by contrast, *does* run against current
   trunk on the next CI tick, which surfaces accumulated debt
   organically without re-litigating closed stages.
-- Is `DOCS/JOB-MODEL.md` mutable on the same terms as `DOCS/SCOPE.md`,
-  or is JOB-MODEL more sacred? Unclear. Probably: same terms, since
-  the whole point is the rulebook compounds.
 - Where do predicates live in the crate graph? R1 (crate dependency
   direction) implies they cannot live in any mobile-safe crate if
   they shell out. Probably: an `xtask`-shaped crate that depends on

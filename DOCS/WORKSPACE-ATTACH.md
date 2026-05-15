@@ -1,8 +1,9 @@
 # WORKSPACE-ATTACH — Scope
 
-Status: draft
+Status: server-side complete (M1, M2); UI not started (M3-M6)
 Owner: ap@nube-io.com
 Created: 2026-05-15
+Last status update: 2026-05-15
 
 ## Summary
 
@@ -505,24 +506,42 @@ All four resolved before milestone 2 began.
 
 ## Milestones
 
-1. **Decisions.** Resolve the four open questions; record in this
+Status legend: `[x]` done, `[~]` partial, `[ ]` not started.
+
+1. `[x]` **Decisions.** Resolve the four open questions; record in this
    file. No code.
-2. **Server-side.** Add `attached_workspaces` table, the four RPC
+   _Landed: workspace-attach job stage 1 (`0e4eeb1`)._
+2. `[x]` **Server-side.** Add `attached_workspaces` table, the four RPC
    methods, the boot-time auto-attach, and the host-adapter switch
    from `Option<PathBuf>` to allowed-roots list. `cargo test` round-trips
    attach → list → detach. UI unchanged.
-3. **Pickup in `RpcClient`.** Generate the new wire types; add the
+   _Landed: workspace-attach job stages 3-7, merged via PR #6
+   (`fae135c`, `54027ac`, `a77056a`, `4016cdf`, `c36d4d2`)._
+3. `[~]` **Pickup in `RpcClient`.** Generate the new wire types; add the
    four methods to `RpcClient`. Browser + Tauri shells inject their
    `PathPicker` implementations. No UI yet.
-4. **Workspaces page.** Build `/workspaces`, the sidebar group, and
+   _Done: TS wire types generated into
+   `ui/codeless-ui/src/lib/rpc/generated/wire.ts` via specta.
+   Missing: `attachWorkspace` / `detachWorkspace` / `listWorkspaces`
+   / `validateWorkspacePath` on the `RpcClient` interface and both
+   shell implementations (`HttpSseClient`, `TauriIpcClient`); the
+   `PathPicker` shell capability and its two injectors; the typed-wire
+   snapshot test for the four methods._
+4. `[ ]` **Workspaces page.** Build `/workspaces`, the sidebar group, and
    the empty-state screen. Hook attach/detach modals through the
    picker + validator.
-5. **Job-page integration.** Filter the jobs view by active
+   _Phasing decision (2026-05-15): a Settings → Workspaces tab ships
+   first as a smaller landing surface, then the `/workspaces` route
+   and sidebar group follow. Both share the same components; the
+   tab is not a parallel UI._
+5. `[ ]` **Job-page integration.** Filter the jobs view by active
    workspace; show a "switch workspace" affordance when the user
-   clicks a job from a different workspace.
-6. **Health & events.** Wire `workspace_unhealthy` /
+   clicks a job from a different workspace. Requires the per-tab
+   active-workspace store from M4.
+6. `[ ]` **Health & events.** Wire `workspace_unhealthy` /
    `workspace_recovered` from the host adapter; render badges +
-   recovery flow.
+   recovery flow. Server-side emits exist (stage 7); UI does not
+   subscribe yet.
 
 Each milestone ships behind the same UI route; partial completion is
 visible but not feature-flagged.
