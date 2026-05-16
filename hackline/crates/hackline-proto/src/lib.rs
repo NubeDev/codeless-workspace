@@ -9,6 +9,7 @@ pub mod keyexpr;
 pub mod msg;
 pub mod zid;
 
+pub use agent_info::AgentInfo;
 pub use connect::{ConnectAck, ConnectRequest};
 pub use msg::{ApiReply, ApiRequest, CmdAck, CmdEnvelope, CmdResult, LogLevel, MsgEnvelope};
 pub use zid::Zid;

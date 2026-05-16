@@ -10,7 +10,7 @@ mod liveliness;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use config::AgentConfig;
 use diag::{ConnectionEvent, DiagState};
@@ -19,6 +19,10 @@ use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Captured before any awaits so `info::spawn` can derive a
+    // monotonic uptime that doesn't include arbitrary boot delays.
+    let started_at = Instant::now();
+
     let config_path = std::env::args()
         .nth(1)
         .map(PathBuf::from)
@@ -66,6 +70,17 @@ async fn main() -> anyhow::Result<()> {
             }
         });
     }
+
+    // Background queryable for `hackline/<org>/<zid>/info`. Detached;
+    // a failure here logs but does not bring down the agent — connect
+    // queryables are the load-bearing path.
+    let _info_handle = info::spawn(
+        session.clone(),
+        cfg.org.clone(),
+        zid.clone(),
+        cfg.allowed_ports.clone(),
+        started_at,
+    );
 
     connect::serve_connect(session, &cfg.org, &zid, &cfg.allowed_ports, diag_state).await?;
     Ok(())

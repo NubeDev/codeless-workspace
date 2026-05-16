@@ -611,16 +611,28 @@ components:
 
     AgentInfo:
       type: object
-      required: [label, allowed_ports]
+      required: [zid, version, allowed_ports, uptime_s]
       properties:
-        label:
+        zid:
           type: string
+          description: Identity the agent loaded from its config — may differ
+            from the gateway's stored `zid` if the device row is stale.
+        version:
+          type: string
+          description: Cargo package version of the running agent
+            (`CARGO_PKG_VERSION`).
         allowed_ports:
           type: array
           items:
             type: integer
             minimum: 1
             maximum: 65535
+        uptime_s:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Seconds since the agent process started, derived from a
+            monotonic clock.
 
     DeviceHealth:
       type: object
