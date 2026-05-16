@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, ErrorBox, PageBody, PageHeader } from "@/components/PageChrome";
-import { useApi } from "@/lib/api";
+import { ApiError, useApi } from "@/lib/api";
 import type { AgentInfo, Device, DeviceHealth, Tunnel } from "@/lib/api";
 import { navigate } from "@/lib/route";
 import { relTime } from "@/lib/utils";
@@ -19,6 +19,7 @@ export function DeviceDetailPage({ id }: { id: number }) {
   const api = useApi();
   const [device, setDevice] = useState<Device | null>(null);
   const [info, setInfo] = useState<AgentInfo | null>(null);
+  const [infoErr, setInfoErr] = useState<ApiError | null>(null);
   const [health, setHealth] = useState<DeviceHealth | null>(null);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [error, setError] = useState<unknown>(null);
@@ -40,12 +41,27 @@ export function DeviceDetailPage({ id }: { id: number }) {
         // Health is polled separately below; the once-on-mount
         // call here is the first tick so the badge fills in
         // immediately, not after `HEALTH_POLL_MS`. Info is
-        // best-effort — a non-responding agent collapses to a
-        // perpetual "live query pending…" placeholder, which is
-        // the right UX when we genuinely don't know whether the
-        // device runs an agent at all.
+        // best-effort *for server-told failures* (ApiError):
+        // 503/504/502 get distinct copy in the card. Any other
+        // failure (network, programming error) routes to the
+        // page-level ErrorBox via setError so it isn't silently
+        // swallowed.
         pollHealth();
-        api.getDeviceInfo(id).then((i) => !cancelled && setInfo(i)).catch(() => {});
+        api
+          .getDeviceInfo(id)
+          .then((i) => {
+            if (cancelled) return;
+            setInfo(i);
+            setInfoErr(null);
+          })
+          .catch((e) => {
+            if (cancelled) return;
+            if (e instanceof ApiError) {
+              setInfoErr(e);
+            } else {
+              setError(e);
+            }
+          });
       } catch (e) {
         if (!cancelled) setError(e);
       }
@@ -132,6 +148,8 @@ export function DeviceDetailPage({ id }: { id: number }) {
                   <Row label="uptime" value={`${Math.round(info.uptime_s / 60)} min`} />
                   <Row label="allowed ports" value={info.allowed_ports.join(", ") || "—"} />
                 </>
+              ) : infoErr ? (
+                <div className="text-muted-foreground">{agentInfoErrorCopy(infoErr.status)}</div>
               ) : (
                 <div className="text-muted-foreground">live query pending…</div>
               )}
@@ -189,4 +207,22 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="font-mono">{value}</span>
     </div>
   );
+}
+
+// Status-to-copy mapping matches the gateway's `api/devices/info.rs`
+// failure mapping: 504 = `agent_timeout`, 503 = `agent_unreachable`,
+// 502 = decode failure. The numeric fallback exists so a future
+// status (e.g. 401 from a token that expired between mount and
+// fetch) still renders something legible.
+function agentInfoErrorCopy(status: number): string {
+  switch (status) {
+    case 504:
+      return "agent did not reply within 1 s";
+    case 503:
+      return "no agent listening for this device";
+    case 502:
+      return "agent reply could not be decoded";
+    default:
+      return `agent info unavailable (HTTP ${status})`;
+  }
 }
