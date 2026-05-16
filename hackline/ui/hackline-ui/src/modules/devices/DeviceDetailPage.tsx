@@ -15,6 +15,15 @@ import { relTime } from "@/lib/utils";
 // this single device (which is fine: one Zenoh query every 5 s).
 const HEALTH_POLL_MS = 5_000;
 
+// Info is identity + policy + uptime — a much slower cadence than
+// health is the right tradeoff. 30 s is fast enough that a rolling
+// upgrade visibly converges in the card and slow enough that an
+// idle detail page costs ~2 Zenoh queries/min. Info generation is
+// in-memory on the agent (zero I/O), so the per-query cost is
+// negligible; the cadence is bounded by operator-perception, not
+// agent load.
+const INFO_POLL_MS = 30_000;
+
 export function DeviceDetailPage({ id }: { id: number }) {
   const api = useApi();
   const [device, setDevice] = useState<Device | null>(null);
@@ -32,44 +41,50 @@ export function DeviceDetailPage({ id }: { id: number }) {
         .then((h) => !cancelled && setHealth(h))
         .catch(() => {});
     };
+    // Info is best-effort *for server-told failures* (ApiError):
+    // 503/504/502 get distinct copy in the card. Any other failure
+    // (network, programming error) routes to the page-level
+    // ErrorBox via setError so it isn't silently swallowed.
+    // Success clears any prior infoErr and vice versa so the card
+    // is always a true snapshot of the last poll.
+    const pollInfo = () => {
+      api
+        .getDeviceInfo(id)
+        .then((i) => {
+          if (cancelled) return;
+          setInfo(i);
+          setInfoErr(null);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          if (e instanceof ApiError) {
+            setInfo(null);
+            setInfoErr(e);
+          } else {
+            setError(e);
+          }
+        });
+    };
     (async () => {
       try {
         const [d, ts] = await Promise.all([api.getDevice(id), api.listTunnels()]);
         if (cancelled) return;
         setDevice(d);
         setTunnels(ts.filter((t) => t.device_id === id));
-        // Health is polled separately below; the once-on-mount
-        // call here is the first tick so the badge fills in
-        // immediately, not after `HEALTH_POLL_MS`. Info is
-        // best-effort *for server-told failures* (ApiError):
-        // 503/504/502 get distinct copy in the card. Any other
-        // failure (network, programming error) routes to the
-        // page-level ErrorBox via setError so it isn't silently
-        // swallowed.
+        // First ticks fire here so health and info both fill in
+        // immediately, not after their respective poll intervals.
         pollHealth();
-        api
-          .getDeviceInfo(id)
-          .then((i) => {
-            if (cancelled) return;
-            setInfo(i);
-            setInfoErr(null);
-          })
-          .catch((e) => {
-            if (cancelled) return;
-            if (e instanceof ApiError) {
-              setInfoErr(e);
-            } else {
-              setError(e);
-            }
-          });
+        pollInfo();
       } catch (e) {
         if (!cancelled) setError(e);
       }
     })();
-    const intervalId = window.setInterval(pollHealth, HEALTH_POLL_MS);
+    const healthIntervalId = window.setInterval(pollHealth, HEALTH_POLL_MS);
+    const infoIntervalId = window.setInterval(pollInfo, INFO_POLL_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      window.clearInterval(healthIntervalId);
+      window.clearInterval(infoIntervalId);
     };
   }, [api, id]);
 
