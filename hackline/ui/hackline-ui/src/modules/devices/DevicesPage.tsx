@@ -113,7 +113,7 @@ export function DevicesPage() {
         ) : devices.length === 0 ? (
           <EmptyState
             title="No devices yet"
-            description="Run hackline-agent on a device, or create a constrained-class device with the button above."
+            description="Run hackline-agent on a device, or register a device manually with the button above."
           />
         ) : (
           <div className="overflow-hidden rounded-lg border">
@@ -123,7 +123,6 @@ export function DevicesPage() {
                   <th className="px-3 py-2 text-left font-medium">Status</th>
                   <th className="px-3 py-2 text-left font-medium">Label</th>
                   <th className="px-3 py-2 text-left font-medium">ZID</th>
-                  <th className="px-3 py-2 text-left font-medium">Class</th>
                   <th className="px-3 py-2 text-left font-medium">RTT</th>
                   <th className="px-3 py-2 text-left font-medium">Last seen</th>
                 </tr>
@@ -154,7 +153,6 @@ export function DevicesPage() {
                       </td>
                       <td className="px-3 py-2">{d.label ?? <span className="text-muted-foreground">—</span>}</td>
                       <td className="px-3 py-2 font-mono text-xs">{shortId(d.zid, 14)}</td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{d.class}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">
                         {h?.online && h.rtt_ms != null ? `${h.rtt_ms} ms` : "—"}
                       </td>

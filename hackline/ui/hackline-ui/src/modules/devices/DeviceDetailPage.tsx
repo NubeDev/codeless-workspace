@@ -37,15 +37,15 @@ export function DeviceDetailPage({ id }: { id: number }) {
         if (cancelled) return;
         setDevice(d);
         setTunnels(ts.filter((t) => t.device_id === id));
-        // Info is best-effort and only meaningful on linux-class
-        // devices (constrained agents don't speak the info topic).
         // Health is polled separately below; the once-on-mount
         // call here is the first tick so the badge fills in
-        // immediately, not after `HEALTH_POLL_MS`.
+        // immediately, not after `HEALTH_POLL_MS`. Info is
+        // best-effort — a non-responding agent collapses to a
+        // perpetual "live query pending…" placeholder, which is
+        // the right UX when we genuinely don't know whether the
+        // device runs an agent at all.
         pollHealth();
-        if (d.class === "linux") {
-          api.getDeviceInfo(id).then((i) => !cancelled && setInfo(i)).catch(() => {});
-        }
+        api.getDeviceInfo(id).then((i) => !cancelled && setInfo(i)).catch(() => {});
       } catch (e) {
         if (!cancelled) setError(e);
       }
@@ -105,13 +105,11 @@ export function DeviceDetailPage({ id }: { id: number }) {
               <CardTitle>Health</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-xs">
-              {/* The first three rows all come from the same probe
-                  so they're rendered atomically: either all from
-                  `health` or all `—`. Mixing in `device.last_seen_at`
-                  as a fallback would let `online` flip while
-                  `last seen` lagged a tick — a visible UI lie.
-                  `class` is a row property, not a probe result, so
-                  it stays sourced from `device`. */}
+              {/* All rows come from the same probe so they're
+                  rendered atomically: either all from `health` or
+                  all `—`. Mixing in `device.last_seen_at` as a
+                  fallback would let `online` flip while `last seen`
+                  lagged a tick — a visible UI lie. */}
               <Row label="online" value={health == null ? "—" : String(health.online)} />
               <Row
                 label="last seen"
@@ -121,7 +119,6 @@ export function DeviceDetailPage({ id }: { id: number }) {
                 label="rtt"
                 value={health?.rtt_ms != null ? `${health.rtt_ms} ms` : "—"}
               />
-              <Row label="class" value={device.class} />
             </CardContent>
           </Card>
           <Card>
@@ -129,11 +126,7 @@ export function DeviceDetailPage({ id }: { id: number }) {
               <CardTitle>Agent info</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-xs">
-              {device.class === "constrained" ? (
-                <div className="text-muted-foreground">
-                  Constrained-class device — no <code>hackline-agent</code>, no tunnel plane.
-                </div>
-              ) : info ? (
+              {info ? (
                 <>
                   <Row label="version" value={info.version} />
                   <Row label="uptime" value={`${Math.round(info.uptime_s / 60)} min`} />

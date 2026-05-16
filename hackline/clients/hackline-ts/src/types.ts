@@ -4,24 +4,15 @@
 // (the consumer-facing `hackline-ts` package already exists for the
 // connection-lifecycle subset, see `hackline/clients/hackline-ts/`).
 
-export type DeviceClass = "linux" | "constrained";
-
 // Wire shape per `DOCS/openapi.yaml` Device + the gateway's actual JSON
 // (`crates/hackline-gateway/src/db/devices.rs::Device`). Timestamps are
-// unix epoch seconds, not ISO strings; `last_seen_at` is the canonical
-// name (the prior `last_seen_ts: string|null` lied on both axes).
-//
-// `class` and `online` are *not* on the wire today — the legacy UI
-// reads them anyway and gets `undefined`. Removing them ripples through
-// `DevicesPage`/`DeviceDetailPage` (online needs a per-row health
-// fetch); deferred to a follow-up so this rename diff stays grepable.
+// unix epoch seconds. `online` is *not* a field on this row — callers
+// derive it from `GET /v1/devices[/{id}]/health`.
 export interface Device {
   id: number;
   zid: string;
   label: string;
-  class: DeviceClass;
   customer_id: number | null;
-  online: boolean;
   last_seen_at: number | null;
   created_at: number;
 }
