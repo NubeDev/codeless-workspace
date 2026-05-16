@@ -59,6 +59,7 @@ These rules are enforceable by `cargo check` or simple grep. Trip one
 and the JOB-LOOP loop halts; a human must intervene.
 
 ### R1 — Crate dependency direction (Rust)
+<!-- enforced_by: crates/codeless-predicates/src/probes/process_spawn.rs -->
 
 The crate table in [`DOCS/SCOPE.md`](./DOCS/SCOPE.md#crate-layout-load-bearing-not-aspirational)
 defines which crates are **iOS-safe** and **Android-safe**. The mobile
@@ -74,6 +75,7 @@ If you add a `use std::process` or `tokio::process` import to any crate
 other than `codeless-adapters-host`, you are violating this rule.
 
 ### R2 — Single transport, single client interface (TypeScript UI)
+<!-- enforced_by: crates/codeless-predicates/src/probes/tauri_imports.rs -->
 
 The single React UI (`ui/codeless-ui/`, Phase 1+) imports **only**
 `RpcClient`. It must **never** import:
@@ -119,6 +121,7 @@ One concept per file. If a file owns more than one of: a struct, its
 methods, its associated traits, its tests — split.
 
 ### Comments — explain *why*, never *what*
+<!-- enforced_by: crates/codeless-predicates/src/probes/no_emojis.rs -->
 
 The code already says what. Comments earn their keep when they capture:
 

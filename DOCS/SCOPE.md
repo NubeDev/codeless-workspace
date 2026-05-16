@@ -191,6 +191,7 @@ committed. SQLite + worktrees above are the runtime's private cache.
 See [`JOB-MODEL.md`](./JOB-MODEL.md) for the in-repo layout.
 
 ### Rule 1 — One transport interface, many implementations
+<!-- enforced_by: crates/codeless-predicates/src/probes/direct_fetch.rs -->
 
 All clients talk to the core through a **single typed RPC interface**, with the wire schema generated from Rust (source of truth) into TypeScript via [`specta`](https://github.com/oscartbeaumont/specta) + [`tauri-specta`](https://github.com/oscartbeaumont/tauri-specta). Hand-written client types are not allowed — clients silently drift otherwise.
 
