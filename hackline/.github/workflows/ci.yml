@@ -1,0 +1,71 @@
+# First CI for hackline. Runs the same gates operators run locally
+# (cargo test + workspace builds + UI typecheck/build + the loopback
+# real-binary client tests via `make test-client`).
+#
+# Not in scope for this iteration:
+#   - `cargo fmt --check`   (codebase is hand-formatted)
+#   - `cargo clippy -D warnings`  (11 outstanding warnings)
+#   - `cargo deny` / `cargo audit`  (supply-chain follow-up)
+# See DOCS/sessions/2026-05-16-goal36-github-actions-ci.md for context.
+
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded in-flight runs on the same ref so a rapid push
+# cadence doesn't queue redundant builds.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin the toolchain to the workspace MSRV so a new-stable-only
+      # syntax cannot land silently. Bump in lockstep with
+      # `Cargo.toml`'s `rust-version`.
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.78"
+
+      - name: cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: install js dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: build hackline-ts client
+        run: pnpm -C clients/hackline-ts build
+
+      - name: typecheck ui
+        run: pnpm -C ui/hackline-ui typecheck
+
+      - name: build ui
+        run: pnpm -C ui/hackline-ui build
+
+      # Builds the gateway binary internally and then runs the
+      # loopback vitest suite against a real spawned server.
+      - name: client integration tests
+        run: make test-client
