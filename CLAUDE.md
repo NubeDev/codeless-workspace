@@ -122,6 +122,7 @@ methods, its associated traits, its tests — split.
 
 ### Comments — explain *why*, never *what*
 <!-- enforced_by: crates/codeless-predicates/src/probes/no_emojis.rs -->
+<!-- enforced_by: crates/codeless-predicates/src/probes/no_task_status.rs -->
 
 The code already says what. Comments earn their keep when they capture:
 
