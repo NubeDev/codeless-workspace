@@ -77,6 +77,11 @@ fn spawn_listener(
     let org_slug = t.org_slug.clone();
     let local_port = t.local_port;
     let public_port = t.public_port;
+    // With `feature = "tls"`, `TunnelTls` is `Option<Arc<ArcSwap<_>>>` and
+    // `.clone()` is the cheap Arc bump we want; without the feature it
+    // collapses to `Option<Infallible>` (Copy) and clippy flags the call.
+    // Keep the clone so both builds compile through the same call site.
+    #[allow(clippy::clone_on_copy)]
     let tls = tls.clone();
     tokio::spawn(async move {
         if let Err(e) = tcp_listener::run_tcp_listener(

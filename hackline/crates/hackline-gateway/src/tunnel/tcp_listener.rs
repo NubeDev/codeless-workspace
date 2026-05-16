@@ -70,6 +70,10 @@ pub async fn run_tcp_listener(
         let db = db.clone();
         let metrics = metrics.clone();
         let org = org_slug.clone();
+        // See `manager.rs`: `.clone()` is the right Arc bump under
+        // `feature = "tls"` and a no-op clippy warning under the
+        // default no-feature build where `TunnelTls` is Copy.
+        #[allow(clippy::clone_on_copy)]
         let tls = tls.clone();
         tokio::spawn(async move {
             let peer = addr.to_string();

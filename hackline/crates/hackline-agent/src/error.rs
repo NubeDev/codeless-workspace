@@ -16,7 +16,4 @@ pub enum AgentError {
 
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-
-    #[error("port {0} not in allowed_ports")]
-    PortDenied(u16),
 }

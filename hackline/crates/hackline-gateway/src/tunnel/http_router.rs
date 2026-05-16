@@ -90,6 +90,9 @@ async fn handle_connection(
 
     let host_lookup = host.clone();
     let db_for_lookup = db.clone();
+    // One-shot tuple consumed by the `match` below; naming it would
+    // require a public type alias for a private join projection.
+    #[allow(clippy::type_complexity)]
     let row = tokio::task::spawn_blocking(
         move || -> Result<Option<(String, i64, i64, i64, String)>, GatewayError> {
             let conn = db_for_lookup.get()?;

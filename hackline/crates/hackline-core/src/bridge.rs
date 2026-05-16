@@ -254,20 +254,15 @@ where
 
     // Zenoh → TCP
     let zenoh_to_tcp = tokio::spawn(async move {
-        loop {
-            match subscriber.recv_async().await {
-                Ok(sample) => {
-                    let bytes = sample.payload().to_bytes();
-                    if bytes.is_empty() {
-                        debug!(ke = %sub_ke, "received close sentinel");
-                        break;
-                    }
-                    down_in.fetch_add(bytes.len() as u64, Ordering::Relaxed);
-                    if write_half.write_all(&bytes).await.is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
+        while let Ok(sample) = subscriber.recv_async().await {
+            let bytes = sample.payload().to_bytes();
+            if bytes.is_empty() {
+                debug!(ke = %sub_ke, "received close sentinel");
+                break;
+            }
+            down_in.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            if write_half.write_all(&bytes).await.is_err() {
+                break;
             }
         }
     });
